@@ -49,6 +49,7 @@ interface LiveRegisterEvent {
   currency:           string;
   leverage:           number;
   isSelfTrading:      boolean;
+  referredByCode?:    string; // [NEW] Optional referral code from signup
   [key: string]: unknown;
 }
 
@@ -107,6 +108,23 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
       );
       return;
     }
+
+    // ── Referral Resolution ───────────────────────────────────────────────────
+    let referredById: string | null = null;
+    if (e.referredByCode) {
+      const referrer = await prismaRead.userProfile.findUnique({
+        where: { referralCode: e.referredByCode },
+        select: { id: true },
+      });
+      if (referrer) {
+        referredById = referrer.id;
+      } else {
+        logger.warn({ code: e.referredByCode }, 'ReferredByCode provided but not found; proceeding without referrer');
+      }
+    }
+
+    const uniqueReferralCode = await generateUniqueReferralCode();
+
     // Create the profile
     const profile = await prismaWrite.userProfile.create({
       data: {
@@ -115,6 +133,8 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
         masterPasswordHash: e.masterPasswordHash,
         isVerified:         false,
         kycStatus:          'pending',
+        referralCode:       uniqueReferralCode,
+        ...(referredById && { referredBy: referredById }),
       },
     });
     profileId = profile.id;
@@ -423,7 +443,9 @@ export async function getLiveUsersByEmail(email: string): Promise<UserAuthContex
   }));
 }
 
-// ── Admin — Country-Scoped User Listing (GBAC) ────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin / GBAC Scope Logic
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface UserAdminView {
   userId:        string;
@@ -516,4 +538,40 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
       lastLoginAt:   r.lastLoginAt,
     })),
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Referral Management
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function isValidReferralCode(code: string): Promise<boolean> {
+  const profile = await prismaRead.userProfile.findUnique({
+    where: { referralCode: code },
+    select: { id: true },
+  });
+  return profile !== null;
+}
+
+/**
+ * Generate a cryptographically secure 8-character uppercase alphanumeric code.
+ * Loops on collision (extremely rare).
+ */
+async function generateUniqueReferralCode(): Promise<string> {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // No I, O, 1, 0, or lowercase
+  while (true) {
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars[Math.floor(Math.random() * chars.length)];
+    }
+    
+    // Check collision
+    const existing = await prismaWrite.userProfile.findUnique({
+      where: { referralCode: code },
+      select: { id: true },
+    });
+    
+    if (!existing) {
+      return code;
+    }
+  }
 }

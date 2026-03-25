@@ -15,6 +15,7 @@ import {
   markEmailVerified,
   touchLastLogin,
   listUsersForAdmin,
+  isValidReferralCode,
 } from '../modules/user/user.service';
 
 const router = Router();
@@ -132,6 +133,21 @@ router.get('/users/check-phone/:phone', async (req: Request, res: Response) => {
   const { ownerEmail } = req.query as { ownerEmail?: string };
   const available = await isPhoneAvailable(decodeURIComponent(req.params.phone!), ownerEmail);
   res.json({ success: true, available });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Check Referral Code
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /internal/users/check-referral/:code
+ * Returns { valid: true } if the referralCode corresponds to an existing Profile.
+ */
+router.get('/users/check-referral/:code', async (req: Request, res: Response) => {
+  const code = req.params.code;
+  if (!code) { res.status(400).json({ success: false, message: 'Code is required' }); return; }
+  const valid = await isValidReferralCode(code);
+  res.json({ success: true, valid });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
