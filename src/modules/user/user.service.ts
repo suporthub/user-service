@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prismaWrite, prismaRead } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 
@@ -411,4 +412,108 @@ export async function getLiveUsersByEmail(email: string): Promise<UserAuthContex
     userId:              a.id,
     profileId:           profile.id,
     email:               profile.email,
+    accountNumber:       a.accountNumber,
+    groupName:           a.groupName,
+    currency:            a.currency,
+    passwordHash:        profile.masterPasswordHash,
+    tradingPasswordHash: a.tradingPasswordHash,
+    isActive:            a.isActive,
+    isVerified:          profile.isVerified,
+    userType:            'live' as const,
+  }));
+}
+
+// ── Admin — Country-Scoped User Listing (GBAC) ────────────────────────────────
+
+export interface UserAdminView {
+  userId:        string;
+  accountNumber: string;
+  email:         string;
+  phone:         string;
+  countryCode:   string | null;
+  groupName:     string;
+  currency:      string;
+  leverage:      number;
+  isActive:      boolean;
+  isVerified:    boolean;
+  kycStatus:     string;
+  createdAt:     Date;
+  lastLoginAt:   Date | null;
+}
+
+export interface AdminUserListOptions {
+  allCountries: boolean;   // GBAC: if true, country filter is skipped
+  countryCodes: string[];  // ISO-2 codes to filter by when allCountries=false
+  page:         number;
+  limit:        number;
+  isActive?:    boolean;
+  search?:      string;
+}
+
+export interface PagedAdminUserResult {
+  data:       UserAdminView[];
+  total:      number;
+  page:       number;
+  totalPages: number;
+}
+
+/**
+ * GBAC-aware paged listing of live users for the admin panel.
+ * - allCountries=true  → no country filter (super_admin view)
+ * - allCountries=false → WHERE countryCode IN (countryCodes[])
+ */
+export async function listUsersForAdmin(options: AdminUserListOptions): Promise<PagedAdminUserResult> {
+  const skip = (options.page - 1) * options.limit;
+
+  const where: Prisma.LiveUserWhereInput = {};
+
+  if (!options.allCountries && options.countryCodes.length > 0) {
+    where.countryCode = { in: options.countryCodes };
+  }
+  if (options.isActive !== undefined) where.isActive = options.isActive;
+  if (options.search) {
+    where.OR = [
+      { accountNumber: { contains: options.search, mode: 'insensitive' } },
+      { userProfile:   { email: { contains: options.search, mode: 'insensitive' } } },
+    ];
+  }
+
+  const [rows, total] = await prismaRead.$transaction([
+    prismaRead.liveUser.findMany({
+      where,
+      skip,
+      take:    options.limit,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, accountNumber: true, countryCode: true,
+        groupName: true, currency: true, leverage: true,
+        isActive: true, createdAt: true, lastLoginAt: true,
+        userProfile: {
+          select: { email: true, phone: true, isVerified: true, kycStatus: true },
+        },
+      },
+    }),
+    prismaRead.liveUser.count({ where }),
+  ]);
+
+  return {
+    total,
+    page:       options.page,
+    totalPages: Math.ceil(total / options.limit),
+    data: rows.map((r) => ({
+      userId:        r.id,
+      accountNumber: r.accountNumber,
+      email:         r.userProfile.email,
+      phone:         r.userProfile.phone,
+      countryCode:   r.countryCode,
+      groupName:     r.groupName,
+      currency:      r.currency,
+      leverage:      r.leverage,
+      isActive:      r.isActive,
+      isVerified:    r.userProfile.isVerified,
+      kycStatus:     r.userProfile.kycStatus,
+      createdAt:     r.createdAt,
+      lastLoginAt:   r.lastLoginAt,
+    })),
+  };
 }

@@ -14,6 +14,7 @@ import {
   markProfileVerified,
   markEmailVerified,
   touchLastLogin,
+  listUsersForAdmin,
 } from '../modules/user/user.service';
 
 const router = Router();
@@ -182,6 +183,50 @@ router.patch('/users/:id/touch-login', async (req: Request, res: Response) => {
   const { userType } = req.body as { userType?: string };
   await touchLastLogin(req.params.id!, userType ?? 'live');
   res.json({ success: true });
+});
+
+/**
+ * GET /internal/admin/users
+ * GBAC-scoped paged user listing for the admin panel.
+ *
+ * The order-gateway (or admin-service) reads allCountries + countryCodes from
+ * the admin JWT and forwards them as JSON in x-admin-scope header:
+ *   { "allCountries": false, "countryCodes": ["IN", "AE"] }
+ *
+ * This service NEVER parses the JWT — it trusts the scope passed by the gateway.
+ */
+router.get('/admin/users', async (req: Request, res: Response) => {
+  const scopeHeader = req.headers['x-admin-scope'] as string | undefined;
+  let allCountries = true;
+  let countryCodes: string[] = [];
+
+  if (scopeHeader) {
+    try {
+      const scope = JSON.parse(scopeHeader) as { allCountries: boolean; countryCodes: string[] };
+      allCountries = scope.allCountries;
+      countryCodes = scope.countryCodes ?? [];
+    } catch {
+      res.status(400).json({ success: false, message: 'Invalid x-admin-scope header' });
+      return;
+    }
+  }
+
+  const page    = Math.max(1, Number(req.query['page'])  || 1);
+  const limit   = Math.min(100, Math.max(1, Number(req.query['limit']) || 20));
+  const isActive = req.query['isActive'] !== undefined
+    ? req.query['isActive'] === 'true'
+    : undefined;
+  const search  = req.query['search'] as string | undefined;
+
+  const result = await listUsersForAdmin({
+    allCountries,
+    countryCodes,
+    page,
+    limit,
+    ...(isActive !== undefined && { isActive }),
+    ...(search    !== undefined && { search }),
+  });
+  res.json({ success: true, ...result });
 });
 
 export default router;
