@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+
+jobs:
+  deploy-to-k3s:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Deploy securely over SSH (Direct Build)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /v3/user-service
+            git pull origin main
+            docker build -t user-service:local .
+            docker save user-service:local | sudo k3s ctr images import -
+            kubectl rollout restart deployment/user-service -n default
