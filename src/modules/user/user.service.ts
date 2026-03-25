@@ -411,13 +411,4 @@ export async function getLiveUsersByEmail(email: string): Promise<UserAuthContex
     userId:              a.id,
     profileId:           profile.id,
     email:               profile.email,
-    accountNumber:       a.accountNumber,
-    groupName:           a.groupName,
-    currency:            a.currency,
-    passwordHash:        profile.masterPasswordHash,
-    tradingPasswordHash: a.tradingPasswordHash,
-    isActive:            a.isActive,
-    isVerified:          profile.isVerified,
-    userType:            'live' as const,
-  }));
 }

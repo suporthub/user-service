@@ -10,6 +10,7 @@ import { connectDB, disconnectDB } from './lib/prisma';
 import { startKafkaConsumer, stopKafkaConsumer } from './lib/kafka';
 import { AppError } from './utils/errors';
 import internalRoutes from './routes/internal.routes';
+import countriesRoutes from './routes/countries.routes';
 
 const app = express();
 
@@ -24,6 +25,9 @@ app.use(pinoHttp({ logger }));
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'user-service', ts: new Date().toISOString() });
 });
+
+// Public reference endpoints (no auth — cached at CDN level)
+app.use('/api/countries', countriesRoutes);
 
 // Internal endpoints only — no public API surface (user reads go through order-gateway)
 app.use('/internal', internalRoutes);
