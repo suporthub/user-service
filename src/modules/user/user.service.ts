@@ -23,6 +23,19 @@ export interface TradingAccountSummary {
   demoBalance?:  number; // only for demo
 }
 
+export interface DashboardAccountSummary {
+  accountNumber:  string;
+  type:           'live' | 'demo';
+  currency:       string;
+  leverage:       number;
+  groupName:      string;
+  isActive:       boolean;
+  accountName:    string | null;
+  userType:       string; // 'live' | 'demo' | 'strategy' | 'copy_follower'
+  accountVariant: string;
+  walletBalance:  number;
+}
+
 /** Context passed to auth-service for login + token minting */
 export interface UserAuthContext {
   userId:        string;   // LiveUser.id or DemoUser.id (used as `sub` in JWT)
@@ -311,24 +324,51 @@ export async function getAccountByAccountNumber(accountNumber: string): Promise<
 
 // ── All accounts for a profile (live + demo) ──────────────────────────────────
 
-export async function getAllAccountsForProfile(profileId: string): Promise<TradingAccountSummary[]> {
+export async function getAllAccountsForProfile(profileId: string): Promise<DashboardAccountSummary[]> {
   const [live, demo] = await Promise.all([
     prismaRead.liveUser.findMany({
       where: { userProfileId: profileId, isActive: true },
-      select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true },
+      select: { 
+        accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, accountName: true,
+        strategyProvider: { select: { id: true } },
+        copyFollowings: { select: { id: true } }
+      },
     }),
     prismaRead.demoUser.findMany({
       where: { userProfileId: profileId, isActive: true },
-      select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, demoBalance: true },
+      select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, demoBalance: true, accountName: true },
     }),
   ]);
 
   return [
-    ...live.map(a => ({ ...a, type: 'live' as const })),
+    ...live.map(a => {
+      let uType = 'live';
+      if (a.strategyProvider) uType = 'strategy';
+      else if (a.copyFollowings.length > 0) uType = 'copy_follower';
+      return {
+        accountNumber: a.accountNumber,
+        type: 'live' as const,
+        currency: a.currency,
+        leverage: a.leverage,
+        groupName: a.groupName,
+        isActive: a.isActive,
+        accountName: a.accountName,
+        userType: uType,
+        accountVariant: a.currency,
+        walletBalance: 0, // Placeholder until MT5 actual balance sync
+      };
+    }),
     ...demo.map(a => ({
-      ...a,
-      type:        'demo' as const,
-      demoBalance: Number(a.demoBalance),
+      accountNumber: a.accountNumber,
+      type: 'demo' as const,
+      currency: a.currency,
+      leverage: a.leverage,
+      groupName: a.groupName,
+      isActive: a.isActive,
+      accountName: a.accountName,
+      userType: 'demo',
+      accountVariant: a.currency,
+      walletBalance: Number(a.demoBalance),
     })),
   ];
 }
@@ -692,4 +732,38 @@ async function generateUniqueReferralCode(): Promise<string> {
       return code;
     }
   }
+}
+
+// ── Dashboard APIs ────────────────────────────────────────────────────────────
+
+export async function getDashboardMe(profileId: string) {
+  return prismaRead.userProfile.findUnique({
+    where: { id: profileId },
+    select: {
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      isIB: true,
+      referralCode: true,
+      kycStatus: true,
+    },
+  });
+}
+
+export async function getDashboardKyc(profileId: string) {
+  // Extract KYC from the first Live account linked to this profile
+  const liveAcc = await prismaRead.liveUser.findFirst({
+    where: { userProfileId: profileId },
+    include: { kyc: true },
+  });
+  if (!liveAcc || !liveAcc.kyc) return null;
+  const kyc = liveAcc.kyc;
+  
+  return {
+    address: { line1: kyc.addressLine1, city: kyc.city, country: kyc.country },
+    idProof: { type: kyc.idProofType, status: kyc.idProofPath ? 'uploaded' : 'pending', frontImage: kyc.idProofPath },
+    addressProof: { status: kyc.addressProofPath ? 'uploaded' : 'pending', rejectionReason: kyc.rejectionReason },
+    bankDetails: { name: kyc.bankName, accountNumber: kyc.bankAccountNumber }
+  };
 }

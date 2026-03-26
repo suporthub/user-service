@@ -17,6 +17,8 @@ import {
   touchLastLogin,
   listUsersForAdmin,
   isValidReferralCode,
+  getDashboardMe,
+  getDashboardKyc,
 } from '../modules/user/user.service';
 
 const router = Router();
@@ -64,6 +66,25 @@ router.get('/profiles/:id', async (req: Request, res: Response) => {
   const profile = await prismaRead.userProfile.findUnique({ where: { id: req.params.id } });
   if (!profile) { res.status(404).json({ success: false, message: 'Profile not found' }); return; }
   res.json(profile);
+});
+
+/**
+ * GET /internal/profiles/me/:id
+ * Fetches Dashboard identity metrics.
+ */
+router.get('/profiles/me/:id', async (req: Request, res: Response) => {
+  const data = await getDashboardMe(req.params.id!);
+  res.json(data);
+});
+
+/**
+ * GET /internal/profiles/kyc/:id
+ * Fetches Dashboard KYC metrics.
+ */
+router.get('/profiles/kyc/:id', async (req: Request, res: Response) => {
+  const data = await getDashboardKyc(req.params.id!);
+  // allow null returns if no KYC exists
+  res.json(data || {});
 });
 
 /**
