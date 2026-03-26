@@ -117,6 +117,10 @@ model UserProfile {
   email               String    @unique
   /// Unique across humans — same person CAN have multiple trading accounts
   phone               String    @unique
+  firstName           String?
+  lastName            String?
+  /// True if this user is registered as an Introducing Broker
+  isIB                Boolean   @default(false)
   /// Web portal password (NOT the MT5 trading password)
   masterPasswordHash  String
   /// True once the user has verified their email via OTP
@@ -152,6 +156,8 @@ model LiveUser {
   externalId          String?     @unique
   /// Human-readable: LU-2025-000123
   accountNumber       String      @unique
+  /// Optional user-defined label (e.g. "Scalping Account", "Crypto Trades")
+  accountName         String?
   /// MT5 trading password hash — separate from the web portal master password
   /// Stored now for future MT5 bridge; not used in web-only trading flows
   tradingPasswordHash String?
@@ -195,6 +201,8 @@ model DemoUser {
   userProfileId   String?      @db.Uuid
   userProfile     UserProfile? @relation(fields: [userProfileId], references: [id])
   accountNumber   String       @unique
+  /// Optional user-defined label
+  accountName     String?
   /// Standalone email for demo-only users who never registered a live profile
   email           String?
   passwordHash    String

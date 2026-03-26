@@ -146,6 +146,7 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
     data: {
       userProfileId:       profileId,
       accountNumber:       e.accountNumber,
+      accountName:         'Main Account',
       tradingPasswordHash: e.tradingPasswordHash,
       countryCode:         e.country,
       groupName:           e.groupName,
@@ -212,6 +213,7 @@ export async function registerDemoUserFromKafka(event: unknown): Promise<void> {
     data: {
       userProfileId: profileId,
       accountNumber: e.accountNumber,
+      accountName:   'Demo account - 1',
       passwordHash:  e.passwordHash, // Also functions as the trading password here
       groupName:     e.groupName,
       currency:      e.currency,
