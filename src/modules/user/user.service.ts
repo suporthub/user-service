@@ -431,10 +431,20 @@ export async function isPhoneAvailable(phone: string, ownerEmail?: string): Prom
 
 // ── Password updates ──────────────────────────────────────────────────────────
 
-export async function updateUserPassword(userId: string, userType: string, passwordHash: string): Promise<void> {
+export async function updateUserPassword(userIdOrProfileId: string, userType: string, passwordHash: string): Promise<void> {
   if (userType === 'live') {
-    // Update the master password on the UserProfile
-    const user = await prismaRead.liveUser.findUnique({ where: { id: userId } });
+    // Handle Master Portal refactor: verifyResetOtp now correctly issues reset tokens against the Master Profile ID.
+    const profile = await prismaRead.userProfile.findUnique({ where: { id: userIdOrProfileId } });
+    if (profile) {
+      await prismaWrite.userProfile.update({
+        where: { id: userIdOrProfileId },
+        data:  { masterPasswordHash: passwordHash },
+      });
+      return;
+    }
+
+    // Legacy fallback: fallback to updating via a specific Trading Account ID
+    const user = await prismaRead.liveUser.findUnique({ where: { id: userIdOrProfileId } });
     if (user) {
       await prismaWrite.userProfile.update({
         where: { id: user.userProfileId },
@@ -442,7 +452,7 @@ export async function updateUserPassword(userId: string, userType: string, passw
       });
     }
   } else {
-    await prismaWrite.demoUser.update({ where: { id: userId }, data: { passwordHash } });
+    await prismaWrite.demoUser.update({ where: { id: userIdOrProfileId }, data: { passwordHash } });
   }
 }
 
