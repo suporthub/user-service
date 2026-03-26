@@ -56,7 +56,8 @@ interface LiveRegisterEvent {
 interface DemoRegisterEvent {
   accountNumber:  string;
   passwordHash:   string;
-  email?:         string;
+  email:          string;
+  phoneNumber:    string;
   groupName:      string;
   currency:       string;
   leverage:       number;
@@ -161,11 +162,57 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
 export async function registerDemoUserFromKafka(event: unknown): Promise<void> {
   const e = event as DemoRegisterEvent;
 
+  // ── Find or create UserProfile ──────────────────────────────────────────────
+  const existingProfile = await prismaRead.userProfile.findUnique({
+    where: { email: e.email },
+  });
+
+  let profileId: string;
+
+  if (existingProfile) {
+    if (existingProfile.phone !== e.phoneNumber) {
+      logger.warn(
+        { accountNumber: e.accountNumber, email: e.email },
+        'DEMO_USER_REGISTER rejected: profile exists but phone mismatch',
+      );
+      return;
+    }
+    profileId = existingProfile.id;
+  } else {
+    const phoneTaken = await prismaRead.userProfile.findUnique({
+      where: { phone: e.phoneNumber },
+    });
+    if (phoneTaken) {
+      logger.warn(
+        { accountNumber: e.accountNumber, phone: e.phoneNumber },
+        'DEMO_USER_REGISTER rejected: phone already registered',
+      );
+      return;
+    }
+
+    // Since this is technically a frontend registration, generate a referral code
+    const uniqueReferralCode = await generateUniqueReferralCode();
+    
+    // Create the master profile
+    const profile = await prismaWrite.userProfile.create({
+      data: {
+        email:              e.email,
+        phone:              e.phoneNumber,
+        masterPasswordHash: e.passwordHash,
+        isVerified:         false,
+        kycStatus:          'pending',
+        referralCode:       uniqueReferralCode,
+      },
+    });
+    profileId = profile.id;
+  }
+
+  // ── Create Demo Account ──────────────────────────────────────────────────────
   await prismaWrite.demoUser.create({
     data: {
+      userProfileId: profileId,
       accountNumber: e.accountNumber,
-      ...(e.email !== undefined && { email: e.email }),
-      passwordHash:  e.passwordHash,
+      passwordHash:  e.passwordHash, // Also functions as the trading password here
       groupName:     e.groupName,
       currency:      e.currency,
       leverage:      e.leverage,
@@ -174,7 +221,7 @@ export async function registerDemoUserFromKafka(event: unknown): Promise<void> {
     },
   });
 
-  logger.info({ accountNumber: e.accountNumber }, 'Demo user registered');
+  logger.info({ accountNumber: e.accountNumber }, 'Demo user registered and linked to Master Profile');
 }
 
 // ── Profile lookups (used by auth-service internal API) ───────────────────────
@@ -194,6 +241,10 @@ export async function getUserProfileByEmail(email: string): Promise<
         where: { isActive: true },
         select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true },
       },
+      demoAccounts: {
+        where: { isActive: true },
+        select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, demoBalance: true },
+      },
     },
   });
   if (!profile) return null;
@@ -205,7 +256,10 @@ export async function getUserProfileByEmail(email: string): Promise<
     masterPasswordHash: profile.masterPasswordHash,
     isVerified:         profile.isVerified,
     kycStatus:          profile.kycStatus,
-    accounts:           profile.liveAccounts.map(a => ({ ...a, type: 'live' as const })),
+    accounts: [
+      ...profile.liveAccounts.map(a => ({ ...a, type: 'live' as const })),
+      ...profile.demoAccounts.map(a => ({ ...a, type: 'demo' as const, demoBalance: Number(a.demoBalance) })),
+    ],
   };
 }
 
@@ -213,25 +267,44 @@ export async function getUserProfileByEmail(email: string): Promise<
  * Get UserAuthContext for a specific live trading account.
  * Used by auth-service to mint a Trading JWT after account selection.
  */
-export async function getLiveUserByAccountNumber(accountNumber: string): Promise<UserAuthContext | null> {
-  const user = await prismaRead.liveUser.findUnique({
+export async function getAccountByAccountNumber(accountNumber: string): Promise<UserAuthContext | null> {
+  const live = await prismaRead.liveUser.findUnique({
     where: { accountNumber },
     include: { userProfile: { select: { id: true, email: true, masterPasswordHash: true, isVerified: true } } },
   });
-  if (!user) return null;
-  return {
-    userId:              user.id,
-    profileId:           user.userProfileId,
-    email:               user.userProfile.email,
-    accountNumber:       user.accountNumber,
-    groupName:           user.groupName,
-    currency:            user.currency,
-    passwordHash:        user.userProfile.masterPasswordHash,
-    tradingPasswordHash: user.tradingPasswordHash,
-    isActive:            user.isActive,
-    isVerified:          user.userProfile.isVerified,
+  if (live) return {
+    userId:              live.id,
+    profileId:           live.userProfileId,
+    email:               live.userProfile.email,
+    accountNumber:       live.accountNumber,
+    groupName:           live.groupName,
+    currency:            live.currency,
+    passwordHash:        live.userProfile.masterPasswordHash,
+    tradingPasswordHash: live.tradingPasswordHash,
+    isActive:            live.isActive,
+    isVerified:          live.userProfile.isVerified,
     userType:            'live',
   };
+
+  const demo = await prismaRead.demoUser.findUnique({
+    where: { accountNumber },
+    include: { userProfile: { select: { id: true, email: true, masterPasswordHash: true, isVerified: true } } },
+  });
+  if (demo) return {
+    userId:              demo.id,
+    profileId:           demo.userProfileId!,
+    email:               demo.userProfile ? demo.userProfile.email : (demo.email ?? ''),
+    accountNumber:       demo.accountNumber,
+    groupName:           demo.groupName,
+    currency:            demo.currency,
+    passwordHash:        demo.userProfile ? demo.userProfile.masterPasswordHash : demo.passwordHash,
+    tradingPasswordHash: demo.passwordHash, // Demo shares the master hash currently if auto-registered
+    isActive:            demo.isActive,
+    isVerified:          demo.userProfile ? demo.userProfile.isVerified : true, // Standalone demos are auto-verified
+    userType:            'demo',
+  };
+
+  return null;
 }
 
 // ── All accounts for a profile (live + demo) ──────────────────────────────────
@@ -385,31 +458,74 @@ export async function getLiveUserByEmail(email: string): Promise<UserAuthContext
 }
 
 export async function getDemoUserByEmail(email: string): Promise<UserAuthContext | null> {
-  const user = await prismaRead.demoUser.findFirst({
-    where:   { email, isActive: true },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true, email: true, accountNumber: true, groupName: true,
-      currency: true, passwordHash: true, isActive: true,
+  const profile = await prismaRead.userProfile.findUnique({
+    where: { email },
+    include: {
+      demoAccounts: {
+        where: { isActive: true },
+        orderBy: { createdAt: 'desc' },
+      },
     },
   });
-  if (!user) return null;
-  return { ...user, userId: user.id, email: user.email ?? '', userType: 'demo', isVerified: true, passwordHash: user.passwordHash };
+  if (!profile || profile.demoAccounts.length === 0) return null;
+  const latest = profile.demoAccounts[0]!;
+  
+  return {
+    userId:              latest.id,
+    profileId:           profile.id,
+    email:               profile.email,
+    accountNumber:       latest.accountNumber,
+    groupName:           latest.groupName,
+    currency:            latest.currency,
+    passwordHash:        profile.masterPasswordHash, // Unified Password
+    tradingPasswordHash: latest.passwordHash,
+    isActive:            latest.isActive,
+    isVerified:          true, // Demo accounts auto-verify
+    userType:            'demo',
+  };
 }
 
 export async function getUserById(userId: string, userType: string): Promise<UserAuthContext | null> {
   if (userType === 'demo') {
     const user = await prismaRead.demoUser.findUnique({
       where: { id: userId },
-      select: {
-        id: true, email: true, accountNumber: true, groupName: true,
-        currency: true, passwordHash: true, isActive: true,
-      },
+      include: { userProfile: { select: { email: true, masterPasswordHash: true } } },
     });
     if (!user) return null;
-    return { ...user, userId: user.id, email: user.email ?? '', userType: 'demo', isVerified: true, passwordHash: user.passwordHash };
+    return {
+      userId:              user.id,
+      profileId:           user.userProfileId ?? '',
+      email:               user.userProfile?.email ?? (user.email ?? ''),
+      accountNumber:       user.accountNumber,
+      groupName:           user.groupName,
+      currency:            user.currency,
+      passwordHash:        user.userProfile?.masterPasswordHash ?? user.passwordHash,
+      tradingPasswordHash: user.passwordHash,
+      isActive:            user.isActive,
+      isVerified:          true,
+      userType:            'demo',
+    };
   }
-  return getLiveUserByAccountNumber(userId) ?? getLiveUserByAccountNumber(userId);
+  
+  // Live User by ID
+  const user = await prismaRead.liveUser.findUnique({
+    where: { id: userId },
+    include: { userProfile: { select: { id: true, email: true, masterPasswordHash: true, isVerified: true } } },
+  });
+  if (!user) return null;
+  return {
+    userId:              user.id,
+    profileId:           user.userProfileId,
+    email:               user.userProfile.email,
+    accountNumber:       user.accountNumber,
+    groupName:           user.groupName,
+    currency:            user.currency,
+    passwordHash:        user.userProfile.masterPasswordHash,
+    tradingPasswordHash: user.tradingPasswordHash,
+    isActive:            user.isActive,
+    isVerified:          user.userProfile.isVerified,
+    userType:            'live',
+  };
 }
 
 // Keep for backward compat with internal.routes.ts getAllAccounts

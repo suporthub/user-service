@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config/env';
+import { prismaRead } from '../lib/prisma';
 import {
   getUserProfileByEmail,
-  getLiveUserByAccountNumber,
+  getAccountByAccountNumber,
   getLiveUsersByEmail,
   getAllAccountsForProfile,
   createTradingAccount,
@@ -56,6 +57,16 @@ router.post('/users/by-email', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /internal/profiles/:id
+ * Fetches a Master Profile by raw ID for auth-service validation.
+ */
+router.get('/profiles/:id', async (req: Request, res: Response) => {
+  const profile = await prismaRead.userProfile.findUnique({ where: { id: req.params.id } });
+  if (!profile) { res.status(404).json({ success: false, message: 'Profile not found' }); return; }
+  res.json(profile);
+});
+
+/**
  * POST /internal/users/by-email/all
  * Returns ALL live accounts for an email (multi-account list).
  */
@@ -72,7 +83,7 @@ router.post('/users/by-email/all', async (req: Request, res: Response) => {
  * Used by auth-service to mint a Trading JWT after account selection.
  */
 router.get('/users/by-account/:accountNumber', async (req: Request, res: Response) => {
-  const user = await getLiveUserByAccountNumber(req.params.accountNumber!);
+  const user = await getAccountByAccountNumber(req.params.accountNumber!);
   if (!user) { res.status(404).json({ success: false, message: 'Account not found' }); return; }
   res.json(user);
 });
