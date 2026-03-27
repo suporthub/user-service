@@ -2,6 +2,7 @@ import { Kafka, EachMessagePayload } from 'kafkajs';
 import { config } from '../config/env';
 import { logger } from './logger';
 import { registerLiveUserFromKafka, registerDemoUserFromKafka } from '../modules/user/user.service';
+import { recordAuditLog } from '../modules/audit/audit.service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kafka Consumer
@@ -42,13 +43,25 @@ async function handleMessage({ topic, message }: EachMessagePayload): Promise<vo
 
   let event: { type?: string; [key: string]: unknown };
   try {
-    event = JSON.parse(raw) as { type?: string; [key: string]: unknown };
+    event = JSON.parse(raw) as { type?: string; eventType?: string; [key: string]: unknown };
   } catch {
     logger.warn({ topic, raw }, 'Failed to parse Kafka message — skipping');
     return;
   }
 
-  logger.info({ topic, type: event.type }, 'Kafka event received');
+  logger.info({ topic, type: event.type ?? event.eventType }, 'Kafka event received');
+
+  if (topic === 'user.journal.events') {
+    await recordAuditLog({
+      userId:    String(event.userId || ''),
+      userType:  String(event.userType || ''),
+      eventType: String(event.eventType || 'UNKNOWN'),
+      ipAddress: typeof event.ipAddress === 'string' ? event.ipAddress : undefined,
+      userAgent: typeof event.userAgent === 'string' ? event.userAgent : undefined,
+      metadata:  event,
+    });
+    return;
+  }
 
   switch (event.type) {
     case 'LIVE_USER_REGISTER':
@@ -102,6 +115,7 @@ export async function startKafkaConsumer(): Promise<void> {
   // Retry subscribe so the service starts even if Kafka-init hasn't created
   // the topic yet (e.g. first docker compose up before kafka-init finishes).
   await subscribeWithRetry('user.register');
+  await subscribeWithRetry('user.journal.events');
 
   await consumer.run({
     eachMessage: async (payload) => {
