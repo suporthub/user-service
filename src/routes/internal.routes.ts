@@ -16,6 +16,7 @@ import {
   markEmailVerified,
   touchLastLogin,
   listUsersForAdmin,
+  updateProfileIBStatus,
   isValidReferralCode,
   getDashboardMe,
   getDashboardKyc,
@@ -137,21 +138,21 @@ router.get('/accounts/:profileId', async (req: Request, res: Response) => {
  * No email verification needed — profile is already verified.
  */
 router.post('/accounts', async (req: Request, res: Response) => {
-  const { 
-    profileId, accountNumber, tradingPasswordHash, 
+  const {
+    profileId, accountNumber, tradingPasswordHash,
     groupName, currency, leverage, countryCode,
-    accountName, isDemo, initialBalance 
+    accountName, isDemo, initialBalance
   } = req.body as {
     profileId: string; accountNumber: string; tradingPasswordHash: string;
     groupName: string; currency: string; leverage: number; countryCode?: string;
     accountName?: string; isDemo?: boolean; initialBalance?: number;
   };
-  
+
   if (!profileId || !accountNumber) {
     res.status(400).json({ success: false, message: 'profileId and accountNumber are required' });
     return;
   }
-  
+
   await createTradingAccount(profileId, accountNumber, tradingPasswordHash, {
     groupName, currency, leverage,
     ...(accountName !== undefined && { accountName }),
@@ -159,7 +160,7 @@ router.post('/accounts', async (req: Request, res: Response) => {
     ...(initialBalance !== undefined && { initialBalance }),
     ...(countryCode !== undefined && { countryCode }),
   });
-  
+
   res.json({ success: true });
 });
 
@@ -207,6 +208,18 @@ router.patch('/users/:id/view-password', async (req: Request, res: Response) => 
   const { viewPassword } = req.body as { viewPassword: string };
   if (!viewPassword) { res.status(400).json({ success: false, message: 'viewPassword is required' }); return; }
   await updateViewPassword(req.params.id!, viewPassword);
+  res.json({ success: true });
+});
+
+
+/**
+ * PATCH /internal/profiles/:profileId/ib
+ * Updates the isIB status of a UserProfile.
+ */
+router.patch('/profiles/:profileId/ib', async (req: Request, res: Response) => {
+  const { isIB } = req.body as { isIB: boolean };
+  if (isIB === undefined) { res.status(400).json({ success: false, message: 'isIB is required' }); return; }
+  await updateProfileIBStatus(req.params.profileId!, isIB);
   res.json({ success: true });
 });
 
@@ -269,12 +282,12 @@ router.get('/admin/users', async (req: Request, res: Response) => {
     }
   }
 
-  const page    = Math.max(1, Number(req.query['page'])  || 1);
-  const limit   = Math.min(100, Math.max(1, Number(req.query['limit']) || 20));
+  const page = Math.max(1, Number(req.query['page']) || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query['limit']) || 20));
   const isActive = req.query['isActive'] !== undefined
     ? req.query['isActive'] === 'true'
     : undefined;
-  const search  = req.query['search'] as string | undefined;
+  const search = req.query['search'] as string | undefined;
 
   const result = await listUsersForAdmin({
     allCountries,
@@ -282,7 +295,7 @@ router.get('/admin/users', async (req: Request, res: Response) => {
     page,
     limit,
     ...(isActive !== undefined && { isActive }),
-    ...(search    !== undefined && { search }),
+    ...(search !== undefined && { search }),
   });
   res.json({ success: true, ...result });
 });

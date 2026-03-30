@@ -5,75 +5,75 @@ import { logger } from '../../lib/logger';
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface UserProfileContext {
-  profileId:          string;
-  email:              string;
-  phone:              string;
+  profileId: string;
+  email: string;
+  phone: string;
   masterPasswordHash: string;
-  isVerified:         boolean;
-  kycStatus:          string;
+  isVerified: boolean;
+  kycStatus: string;
 }
 
 export interface TradingAccountSummary {
   accountNumber: string;
-  type:          'live' | 'demo';
-  currency:      string;
-  leverage:      number;
-  groupName:     string;
-  isActive:      boolean;
-  demoBalance?:  number; // only for demo
+  type: 'live' | 'demo';
+  currency: string;
+  leverage: number;
+  groupName: string;
+  isActive: boolean;
+  demoBalance?: number; // only for demo
 }
 
 export interface DashboardAccountSummary {
-  accountNumber:  string;
-  type:           'live' | 'demo';
-  currency:       string;
-  leverage:       number;
-  groupName:      string;
-  isActive:       boolean;
-  accountName:    string | null;
-  userType:       string; // 'live' | 'demo' | 'strategy' | 'copy_follower'
+  accountNumber: string;
+  type: 'live' | 'demo';
+  currency: string;
+  leverage: number;
+  groupName: string;
+  isActive: boolean;
+  accountName: string | null;
+  userType: string; // 'live' | 'demo' | 'strategy' | 'copy_follower'
   accountVariant: string;
-  walletBalance:  number;
+  walletBalance: number;
 }
 
 /** Context passed to auth-service for login + token minting */
 export interface UserAuthContext {
-  userId:        string;   // LiveUser.id or DemoUser.id (used as `sub` in JWT)
-  profileId?:    string;   // UserProfile.id (present for live accounts)
-  email:         string;   // from UserProfile
+  userId: string;   // LiveUser.id or DemoUser.id (used as `sub` in JWT)
+  profileId?: string;   // UserProfile.id (present for live accounts)
+  email: string;   // from UserProfile
   accountNumber: string;
-  groupName:     string;
-  currency:      string;
-  passwordHash:  string;   // NOTE: for live this is masterPasswordHash on UserProfile
+  groupName: string;
+  currency: string;
+  passwordHash: string;   // NOTE: for live this is masterPasswordHash on UserProfile
   tradingPasswordHash?: string | null;
-  isActive:      boolean;
-  isVerified:    boolean;
-  userType:      'live' | 'demo';
+  isActive: boolean;
+  isVerified: boolean;
+  userType: 'live' | 'demo';
 }
 
 interface LiveRegisterEvent {
-  accountNumber:      string;
+  accountNumber: string;
   masterPasswordHash: string;
   tradingPasswordHash: string;
-  email:              string;
-  phoneNumber:        string;
-  country:            string;
-  groupName:          string;
-  currency:           string;
-  leverage:           number;
-  isSelfTrading:      boolean;
-  referredByCode?:    string; // [NEW] Optional referral code from signup
+  email: string;
+  phoneNumber: string;
+  country: string;
+  groupName: string;
+  currency: string;
+  leverage: number;
+  isSelfTrading: boolean;
+  referredByCode?: string; // [NEW] Optional referral code from signup
   [key: string]: unknown;
 }
 
 interface DemoRegisterEvent {
-  accountNumber:  string;
-  passwordHash:   string;
-  email:          string;
-  phoneNumber:    string;
-  groupName:      string;
-  currency:       string;
-  leverage:       number;
+  accountNumber: string;
+  passwordHash: string;
+  email: string;
+  phoneNumber: string;
+  groupName: string;
+  currency: string;
+  leverage: number;
   initialBalance: number;
   [key: string]: unknown;
 }
@@ -142,12 +142,12 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
     // Create the profile
     const profile = await prismaWrite.userProfile.create({
       data: {
-        email:              e.email,
-        phone:              e.phoneNumber,
+        email: e.email,
+        phone: e.phoneNumber,
         masterPasswordHash: e.masterPasswordHash,
-        isVerified:         false,
-        kycStatus:          'pending',
-        referralCode:       uniqueReferralCode,
+        isVerified: false,
+        kycStatus: 'pending',
+        referralCode: uniqueReferralCode,
         ...(referredById && { referredBy: referredById }),
       },
     });
@@ -157,16 +157,16 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
   // ── Create the LiveUser trading account ─────────────────────────────────────
   await prismaWrite.liveUser.create({
     data: {
-      userProfileId:       profileId,
-      accountNumber:       e.accountNumber,
-      accountName:         'Main Account',
+      userProfileId: profileId,
+      accountNumber: e.accountNumber,
+      accountName: 'Main Account',
       tradingPasswordHash: e.tradingPasswordHash,
-      countryCode:         e.country,
-      groupName:           e.groupName,
-      currency:            e.currency,
-      leverage:            e.leverage,
-      isSelfTrading:       e.isSelfTrading,
-      isActive:            true,
+      countryCode: e.country,
+      groupName: e.groupName,
+      currency: e.currency,
+      leverage: e.leverage,
+      isSelfTrading: e.isSelfTrading,
+      isActive: true,
     },
   });
 
@@ -206,16 +206,16 @@ export async function registerDemoUserFromKafka(event: unknown): Promise<void> {
 
     // Since this is technically a frontend registration, generate a referral code
     const uniqueReferralCode = await generateUniqueReferralCode();
-    
+
     // Create the master profile
     const profile = await prismaWrite.userProfile.create({
       data: {
-        email:              e.email,
-        phone:              e.phoneNumber,
+        email: e.email,
+        phone: e.phoneNumber,
         masterPasswordHash: e.passwordHash,
-        isVerified:         false,
-        kycStatus:          'pending',
-        referralCode:       uniqueReferralCode,
+        isVerified: false,
+        kycStatus: 'pending',
+        referralCode: uniqueReferralCode,
       },
     });
     profileId = profile.id;
@@ -226,13 +226,13 @@ export async function registerDemoUserFromKafka(event: unknown): Promise<void> {
     data: {
       userProfileId: profileId,
       accountNumber: e.accountNumber,
-      accountName:   'Demo account - 1',
-      passwordHash:  e.passwordHash, // Also functions as the trading password here
-      groupName:     e.groupName,
-      currency:      e.currency,
-      leverage:      e.leverage,
-      demoBalance:   e.initialBalance,
-      isActive:      true,
+      accountName: 'Demo account - 1',
+      passwordHash: e.passwordHash, // Also functions as the trading password here
+      groupName: e.groupName,
+      currency: e.currency,
+      leverage: e.leverage,
+      demoBalance: e.initialBalance,
+      isActive: true,
     },
   });
 
@@ -265,12 +265,12 @@ export async function getUserProfileByEmail(email: string): Promise<
   if (!profile) return null;
 
   return {
-    profileId:          profile.id,
-    email:              profile.email,
-    phone:              profile.phone,
+    profileId: profile.id,
+    email: profile.email,
+    phone: profile.phone,
     masterPasswordHash: profile.masterPasswordHash,
-    isVerified:         profile.isVerified,
-    kycStatus:          profile.kycStatus,
+    isVerified: profile.isVerified,
+    kycStatus: profile.kycStatus,
     accounts: [
       ...profile.liveAccounts.map(a => ({ ...a, type: 'live' as const })),
       ...profile.demoAccounts.map(a => ({ ...a, type: 'demo' as const, demoBalance: Number(a.demoBalance) })),
@@ -288,17 +288,17 @@ export async function getAccountByAccountNumber(accountNumber: string): Promise<
     include: { userProfile: { select: { id: true, email: true, masterPasswordHash: true, isVerified: true } } },
   });
   if (live) return {
-    userId:              live.id,
-    profileId:           live.userProfileId,
-    email:               live.userProfile.email,
-    accountNumber:       live.accountNumber,
-    groupName:           live.groupName,
-    currency:            live.currency,
-    passwordHash:        live.userProfile.masterPasswordHash,
+    userId: live.id,
+    profileId: live.userProfileId,
+    email: live.userProfile.email,
+    accountNumber: live.accountNumber,
+    groupName: live.groupName,
+    currency: live.currency,
+    passwordHash: live.userProfile.masterPasswordHash,
     tradingPasswordHash: live.tradingPasswordHash,
-    isActive:            live.isActive,
-    isVerified:          live.userProfile.isVerified,
-    userType:            'live',
+    isActive: live.isActive,
+    isVerified: live.userProfile.isVerified,
+    userType: 'live',
   };
 
   const demo = await prismaRead.demoUser.findUnique({
@@ -306,17 +306,17 @@ export async function getAccountByAccountNumber(accountNumber: string): Promise<
     include: { userProfile: { select: { id: true, email: true, masterPasswordHash: true, isVerified: true } } },
   });
   if (demo) return {
-    userId:              demo.id,
-    profileId:           demo.userProfileId!,
-    email:               demo.userProfile ? demo.userProfile.email : (demo.email ?? ''),
-    accountNumber:       demo.accountNumber,
-    groupName:           demo.groupName,
-    currency:            demo.currency,
-    passwordHash:        demo.userProfile ? demo.userProfile.masterPasswordHash : demo.passwordHash,
+    userId: demo.id,
+    profileId: demo.userProfileId!,
+    email: demo.userProfile ? demo.userProfile.email : (demo.email ?? ''),
+    accountNumber: demo.accountNumber,
+    groupName: demo.groupName,
+    currency: demo.currency,
+    passwordHash: demo.userProfile ? demo.userProfile.masterPasswordHash : demo.passwordHash,
     tradingPasswordHash: demo.passwordHash, // Demo shares the master hash currently if auto-registered
-    isActive:            demo.isActive,
-    isVerified:          demo.userProfile ? demo.userProfile.isVerified : true, // Standalone demos are auto-verified
-    userType:            'demo',
+    isActive: demo.isActive,
+    isVerified: demo.userProfile ? demo.userProfile.isVerified : true, // Standalone demos are auto-verified
+    userType: 'demo',
   };
 
   return null;
@@ -328,7 +328,7 @@ export async function getAllAccountsForProfile(profileId: string): Promise<Dashb
   const [live, demo] = await Promise.all([
     prismaRead.liveUser.findMany({
       where: { userProfileId: profileId, isActive: true },
-      select: { 
+      select: {
         accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, accountName: true,
         strategyProvider: { select: { id: true } },
         copyFollowings: { select: { id: true } }
@@ -376,41 +376,41 @@ export async function getAllAccountsForProfile(profileId: string): Promise<Dashb
 // ── Create new trading account (in-portal, no re-verification) ────────────────
 
 export async function createTradingAccount(
-  profileId:           string,
-  accountNumber:       string,
+  profileId: string,
+  accountNumber: string,
   tradingPasswordHash: string,
-  options: { 
-    groupName: string; currency: string; leverage: number; 
-    countryCode?: string; accountName?: string; isDemo?: boolean; initialBalance?: number 
+  options: {
+    groupName: string; currency: string; leverage: number;
+    countryCode?: string; accountName?: string; isDemo?: boolean; initialBalance?: number
   },
 ): Promise<void> {
   if (options.isDemo) {
     await prismaWrite.demoUser.create({
       data: {
-        userProfileId:       profileId,
+        userProfileId: profileId,
         accountNumber,
-        passwordHash:        tradingPasswordHash,
-        accountName:         options.accountName ?? 'Demo Account',
-        groupName:           options.groupName,
-        currency:            options.currency,
-        leverage:            options.leverage,
-        demoBalance:         options.initialBalance ?? 10000.00,
-        isActive:            true,
+        passwordHash: tradingPasswordHash,
+        accountName: options.accountName ?? 'Demo Account',
+        groupName: options.groupName,
+        currency: options.currency,
+        leverage: options.leverage,
+        demoBalance: options.initialBalance ?? 10000.00,
+        isActive: true,
       },
     });
   } else {
     await prismaWrite.liveUser.create({
       data: {
-        userProfileId:       profileId,
+        userProfileId: profileId,
         accountNumber,
         tradingPasswordHash,
-        accountName:         options.accountName ?? 'Live Account',
-        groupName:           options.groupName,
-        currency:            options.currency,
-        leverage:            options.leverage,
+        accountName: options.accountName ?? 'Live Account',
+        groupName: options.groupName,
+        currency: options.currency,
+        leverage: options.leverage,
         ...(options.countryCode !== undefined && { countryCode: options.countryCode }),
-        isSelfTrading:       true,
-        isActive:            true,
+        isSelfTrading: true,
+        isActive: true,
       },
     });
   }
@@ -422,9 +422,19 @@ export async function createTradingAccount(
 export async function markProfileVerified(profileId: string): Promise<void> {
   await prismaWrite.userProfile.update({
     where: { id: profileId },
-    data:  { isVerified: true },
+    data: { isVerified: true },
   });
 }
+
+/** Mark the UserProfile as an Introducing Broker. */
+export async function updateProfileIBStatus(profileId: string, isIB: boolean): Promise<void> {
+  await prismaWrite.userProfile.update({
+    where: { id: profileId },
+    data: { isIB },
+  });
+  logger.info({ profileId, isIB }, 'User profile IB status updated');
+}
+
 
 /** Mark a specific live account as verified (legacy — now delegates to profile). */
 export async function markEmailVerified(userId: string): Promise<void> {
@@ -458,7 +468,7 @@ export async function updateUserPassword(userIdOrProfileId: string, userType: st
     if (profile) {
       await prismaWrite.userProfile.update({
         where: { id: userIdOrProfileId },
-        data:  { masterPasswordHash: passwordHash },
+        data: { masterPasswordHash: passwordHash },
       });
       return;
     }
@@ -468,7 +478,7 @@ export async function updateUserPassword(userIdOrProfileId: string, userType: st
     if (user) {
       await prismaWrite.userProfile.update({
         where: { id: user.userProfileId },
-        data:  { masterPasswordHash: passwordHash },
+        data: { masterPasswordHash: passwordHash },
       });
     }
   } else {
@@ -478,7 +488,7 @@ export async function updateUserPassword(userIdOrProfileId: string, userType: st
 
 export async function updateViewPassword(userId: string, viewPassword: string): Promise<void> {
   await prismaWrite.userTradingConfig.upsert({
-    where:  { userId },
+    where: { userId },
     create: { userId, viewPasswordHash: viewPassword },
     update: { viewPasswordHash: viewPassword },
   });
@@ -502,10 +512,10 @@ export async function getLiveUserByEmail(email: string): Promise<UserAuthContext
     where: { email },
     include: {
       liveAccounts: {
-        where:   { isActive: true },
+        where: { isActive: true },
         orderBy: { createdAt: 'desc' },
-        take:    1,
-        select:  {
+        take: 1,
+        select: {
           id: true, accountNumber: true, groupName: true, currency: true,
           isActive: true, tradingPasswordHash: true,
         },
@@ -515,17 +525,17 @@ export async function getLiveUserByEmail(email: string): Promise<UserAuthContext
   if (!profile || profile.liveAccounts.length === 0) return null;
   const latest = profile.liveAccounts[0]!;
   return {
-    userId:              latest.id,
-    profileId:           profile.id,
-    email:               profile.email,
-    accountNumber:       latest.accountNumber,
-    groupName:           latest.groupName,
-    currency:            latest.currency,
-    passwordHash:        profile.masterPasswordHash,
+    userId: latest.id,
+    profileId: profile.id,
+    email: profile.email,
+    accountNumber: latest.accountNumber,
+    groupName: latest.groupName,
+    currency: latest.currency,
+    passwordHash: profile.masterPasswordHash,
     tradingPasswordHash: latest.tradingPasswordHash,
-    isActive:            latest.isActive,
-    isVerified:          profile.isVerified,
-    userType:            'live',
+    isActive: latest.isActive,
+    isVerified: profile.isVerified,
+    userType: 'live',
   };
 }
 
@@ -541,19 +551,19 @@ export async function getDemoUserByEmail(email: string): Promise<UserAuthContext
   });
   if (!profile || profile.demoAccounts.length === 0) return null;
   const latest = profile.demoAccounts[0]!;
-  
+
   return {
-    userId:              latest.id,
-    profileId:           profile.id,
-    email:               profile.email,
-    accountNumber:       latest.accountNumber,
-    groupName:           latest.groupName,
-    currency:            latest.currency,
-    passwordHash:        profile.masterPasswordHash, // Unified Password
+    userId: latest.id,
+    profileId: profile.id,
+    email: profile.email,
+    accountNumber: latest.accountNumber,
+    groupName: latest.groupName,
+    currency: latest.currency,
+    passwordHash: profile.masterPasswordHash, // Unified Password
     tradingPasswordHash: latest.passwordHash,
-    isActive:            latest.isActive,
-    isVerified:          true, // Demo accounts auto-verify
-    userType:            'demo',
+    isActive: latest.isActive,
+    isVerified: true, // Demo accounts auto-verify
+    userType: 'demo',
   };
 }
 
@@ -565,20 +575,20 @@ export async function getUserById(userId: string, userType: string): Promise<Use
     });
     if (!user) return null;
     return {
-      userId:              user.id,
-      profileId:           user.userProfileId ?? '',
-      email:               user.userProfile?.email ?? (user.email ?? ''),
-      accountNumber:       user.accountNumber,
-      groupName:           user.groupName,
-      currency:            user.currency,
-      passwordHash:        user.userProfile?.masterPasswordHash ?? user.passwordHash,
+      userId: user.id,
+      profileId: user.userProfileId ?? '',
+      email: user.userProfile?.email ?? (user.email ?? ''),
+      accountNumber: user.accountNumber,
+      groupName: user.groupName,
+      currency: user.currency,
+      passwordHash: user.userProfile?.masterPasswordHash ?? user.passwordHash,
       tradingPasswordHash: user.passwordHash,
-      isActive:            user.isActive,
-      isVerified:          true,
-      userType:            'demo',
+      isActive: user.isActive,
+      isVerified: true,
+      userType: 'demo',
     };
   }
-  
+
   // Live User by ID
   const user = await prismaRead.liveUser.findUnique({
     where: { id: userId },
@@ -586,17 +596,17 @@ export async function getUserById(userId: string, userType: string): Promise<Use
   });
   if (!user) return null;
   return {
-    userId:              user.id,
-    profileId:           user.userProfileId,
-    email:               user.userProfile.email,
-    accountNumber:       user.accountNumber,
-    groupName:           user.groupName,
-    currency:            user.currency,
-    passwordHash:        user.userProfile.masterPasswordHash,
+    userId: user.id,
+    profileId: user.userProfileId,
+    email: user.userProfile.email,
+    accountNumber: user.accountNumber,
+    groupName: user.groupName,
+    currency: user.currency,
+    passwordHash: user.userProfile.masterPasswordHash,
     tradingPasswordHash: user.tradingPasswordHash,
-    isActive:            user.isActive,
-    isVerified:          user.userProfile.isVerified,
-    userType:            'live',
+    isActive: user.isActive,
+    isVerified: user.userProfile.isVerified,
+    userType: 'live',
   };
 }
 
@@ -606,9 +616,9 @@ export async function getLiveUsersByEmail(email: string): Promise<UserAuthContex
     where: { email },
     include: {
       liveAccounts: {
-        where:   { isActive: true },
+        where: { isActive: true },
         orderBy: { createdAt: 'desc' },
-        select:  {
+        select: {
           id: true, accountNumber: true, groupName: true, currency: true,
           isActive: true, tradingPasswordHash: true,
         },
@@ -617,17 +627,17 @@ export async function getLiveUsersByEmail(email: string): Promise<UserAuthContex
   });
   if (!profile) return [];
   return profile.liveAccounts.map(a => ({
-    userId:              a.id,
-    profileId:           profile.id,
-    email:               profile.email,
-    accountNumber:       a.accountNumber,
-    groupName:           a.groupName,
-    currency:            a.currency,
-    passwordHash:        profile.masterPasswordHash,
+    userId: a.id,
+    profileId: profile.id,
+    email: profile.email,
+    accountNumber: a.accountNumber,
+    groupName: a.groupName,
+    currency: a.currency,
+    passwordHash: profile.masterPasswordHash,
     tradingPasswordHash: a.tradingPasswordHash,
-    isActive:            a.isActive,
-    isVerified:          profile.isVerified,
-    userType:            'live' as const,
+    isActive: a.isActive,
+    isVerified: profile.isVerified,
+    userType: 'live' as const,
   }));
 }
 
@@ -636,34 +646,34 @@ export async function getLiveUsersByEmail(email: string): Promise<UserAuthContex
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface UserAdminView {
-  userId:        string;
+  userId: string;
   accountNumber: string;
-  email:         string;
-  phone:         string;
-  countryCode:   string | null;
-  groupName:     string;
-  currency:      string;
-  leverage:      number;
-  isActive:      boolean;
-  isVerified:    boolean;
-  kycStatus:     string;
-  createdAt:     Date;
-  lastLoginAt:   Date | null;
+  email: string;
+  phone: string;
+  countryCode: string | null;
+  groupName: string;
+  currency: string;
+  leverage: number;
+  isActive: boolean;
+  isVerified: boolean;
+  kycStatus: string;
+  createdAt: Date;
+  lastLoginAt: Date | null;
 }
 
 export interface AdminUserListOptions {
   allCountries: boolean;   // GBAC: if true, country filter is skipped
   countryCodes: string[];  // ISO-2 codes to filter by when allCountries=false
-  page:         number;
-  limit:        number;
-  isActive?:    boolean;
-  search?:      string;
+  page: number;
+  limit: number;
+  isActive?: boolean;
+  search?: string;
 }
 
 export interface PagedAdminUserResult {
-  data:       UserAdminView[];
-  total:      number;
-  page:       number;
+  data: UserAdminView[];
+  total: number;
+  page: number;
   totalPages: number;
 }
 
@@ -684,7 +694,7 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
   if (options.search) {
     where.OR = [
       { accountNumber: { contains: options.search, mode: 'insensitive' } },
-      { userProfile:   { email: { contains: options.search, mode: 'insensitive' } } },
+      { userProfile: { email: { contains: options.search, mode: 'insensitive' } } },
     ];
   }
 
@@ -692,7 +702,7 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
     prismaRead.liveUser.findMany({
       where,
       skip,
-      take:    options.limit,
+      take: options.limit,
       orderBy: { createdAt: 'desc' },
       select: {
         id: true, accountNumber: true, countryCode: true,
@@ -708,22 +718,22 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
 
   return {
     total,
-    page:       options.page,
+    page: options.page,
     totalPages: Math.ceil(total / options.limit),
     data: rows.map((r) => ({
-      userId:        r.id,
+      userId: r.id,
       accountNumber: r.accountNumber,
-      email:         r.userProfile.email,
-      phone:         r.userProfile.phone,
-      countryCode:   r.countryCode,
-      groupName:     r.groupName,
-      currency:      r.currency,
-      leverage:      r.leverage,
-      isActive:      r.isActive,
-      isVerified:    r.userProfile.isVerified,
-      kycStatus:     r.userProfile.kycStatus,
-      createdAt:     r.createdAt,
-      lastLoginAt:   r.lastLoginAt,
+      email: r.userProfile.email,
+      phone: r.userProfile.phone,
+      countryCode: r.countryCode,
+      groupName: r.groupName,
+      currency: r.currency,
+      leverage: r.leverage,
+      isActive: r.isActive,
+      isVerified: r.userProfile.isVerified,
+      kycStatus: r.userProfile.kycStatus,
+      createdAt: r.createdAt,
+      lastLoginAt: r.lastLoginAt,
     })),
   };
 }
@@ -751,13 +761,13 @@ async function generateUniqueReferralCode(): Promise<string> {
     for (let i = 0; i < 8; i++) {
       code += chars[Math.floor(Math.random() * chars.length)];
     }
-    
+
     // Check collision
     const existing = await prismaWrite.userProfile.findUnique({
       where: { referralCode: code },
       select: { id: true },
     });
-    
+
     if (!existing) {
       return code;
     }
@@ -789,7 +799,7 @@ export async function getDashboardKyc(profileId: string) {
   });
   if (!liveAcc || !liveAcc.kyc) return null;
   const kyc = liveAcc.kyc;
-  
+
   return {
     address: { line1: kyc.addressLine1, city: kyc.city, country: kyc.country },
     idProof: { type: kyc.idProofType, status: kyc.idProofPath ? 'uploaded' : 'pending', frontImage: kyc.idProofPath },
