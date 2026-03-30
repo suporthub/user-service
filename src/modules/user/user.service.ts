@@ -379,21 +379,41 @@ export async function createTradingAccount(
   profileId:           string,
   accountNumber:       string,
   tradingPasswordHash: string,
-  options: { groupName: string; currency: string; leverage: number; countryCode?: string },
+  options: { 
+    groupName: string; currency: string; leverage: number; 
+    countryCode?: string; accountName?: string; isDemo?: boolean; initialBalance?: number 
+  },
 ): Promise<void> {
-  await prismaWrite.liveUser.create({
-    data: {
-      userProfileId:       profileId,
-      accountNumber,
-      tradingPasswordHash,
-      groupName:           options.groupName,
-      currency:            options.currency,
-      leverage:            options.leverage,
-      ...(options.countryCode !== undefined && { countryCode: options.countryCode }),
-      isSelfTrading:       true,
-      isActive:            true,
-    },
-  });
+  if (options.isDemo) {
+    await prismaWrite.demoUser.create({
+      data: {
+        userProfileId:       profileId,
+        accountNumber,
+        passwordHash:        tradingPasswordHash,
+        accountName:         options.accountName ?? 'Demo Account',
+        groupName:           options.groupName,
+        currency:            options.currency,
+        leverage:            options.leverage,
+        demoBalance:         options.initialBalance ?? 10000.00,
+        isActive:            true,
+      },
+    });
+  } else {
+    await prismaWrite.liveUser.create({
+      data: {
+        userProfileId:       profileId,
+        accountNumber,
+        tradingPasswordHash,
+        accountName:         options.accountName ?? 'Live Account',
+        groupName:           options.groupName,
+        currency:            options.currency,
+        leverage:            options.leverage,
+        ...(options.countryCode !== undefined && { countryCode: options.countryCode }),
+        isSelfTrading:       true,
+        isActive:            true,
+      },
+    });
+  }
 }
 
 // ── Email verification ────────────────────────────────────────────────────────

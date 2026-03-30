@@ -137,19 +137,29 @@ router.get('/accounts/:profileId', async (req: Request, res: Response) => {
  * No email verification needed — profile is already verified.
  */
 router.post('/accounts', async (req: Request, res: Response) => {
-  const { profileId, accountNumber, tradingPasswordHash, groupName, currency, leverage, countryCode } =
-    req.body as {
-      profileId: string; accountNumber: string; tradingPasswordHash: string;
-      groupName: string; currency: string; leverage: number; countryCode?: string;
-    };
+  const { 
+    profileId, accountNumber, tradingPasswordHash, 
+    groupName, currency, leverage, countryCode,
+    accountName, isDemo, initialBalance 
+  } = req.body as {
+    profileId: string; accountNumber: string; tradingPasswordHash: string;
+    groupName: string; currency: string; leverage: number; countryCode?: string;
+    accountName?: string; isDemo?: boolean; initialBalance?: number;
+  };
+  
   if (!profileId || !accountNumber) {
     res.status(400).json({ success: false, message: 'profileId and accountNumber are required' });
     return;
   }
+  
   await createTradingAccount(profileId, accountNumber, tradingPasswordHash, {
     groupName, currency, leverage,
+    ...(accountName !== undefined && { accountName }),
+    ...(isDemo !== undefined && { isDemo }),
+    ...(initialBalance !== undefined && { initialBalance }),
     ...(countryCode !== undefined && { countryCode }),
   });
+  
   res.json({ success: true });
 });
 
