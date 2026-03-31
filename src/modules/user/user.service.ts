@@ -774,7 +774,18 @@ async function generateUniqueReferralCode(): Promise<string> {
   }
 }
 
+// ── Profile Fetch by ID ───────────────────────────────────────────────────────
+
+/**
+ * SRP — Fetches a full UserProfile by primary key.
+ * Used by auth-service password-change flows that require masterPasswordHash.
+ */
+export async function getProfileById(profileId: string) {
+  return prismaRead.userProfile.findUnique({ where: { id: profileId } });
+}
+
 // ── Dashboard APIs ────────────────────────────────────────────────────────────
+
 
 export async function getDashboardMe(profileId: string) {
   return prismaRead.userProfile.findUnique({

@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { config } from '../config/env';
-import { prismaRead } from '../lib/prisma';
 import {
   getUserProfileByEmail,
+  getProfileById,
   getAccountByAccountNumber,
   getLiveUsersByEmail,
   getAllAccountsForProfile,
@@ -65,7 +65,7 @@ router.post('/users/by-email', async (req: Request, res: Response) => {
  * Fetches a Master Profile by raw ID.
  */
 router.get('/profiles/:id', async (req: Request, res: Response) => {
-  const profile = await prismaRead.userProfile.findUnique({ where: { id: req.params.id } });
+  const profile = await getProfileById(req.params.id!);
   if (!profile) { res.status(404).json({ success: false, message: 'Profile not found' }); return; }
   res.json(profile);
 });
