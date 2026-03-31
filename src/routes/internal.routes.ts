@@ -20,6 +20,9 @@ import {
   isValidReferralCode,
   getDashboardMe,
   getDashboardKyc,
+  updateProfileDetails,
+  upsertKycDetails,
+  softDeleteProfile,
 } from '../modules/user/user.service';
 
 const router = Router();
@@ -40,7 +43,6 @@ router.use((req: Request, res: Response, next: () => void) => {
 /**
  * POST /internal/users/by-email
  * Returns UserProfile + live accounts list for login.
- * Used by auth-service to verify master password and enumerate accounts.
  */
 router.post('/users/by-email', async (req: Request, res: Response) => {
   const { email, userType } = req.body as { email: string; userType?: string };
@@ -53,7 +55,6 @@ router.post('/users/by-email', async (req: Request, res: Response) => {
     return;
   }
 
-  // Live: return UserProfile with accounts list
   const profile = await getUserProfileByEmail(email);
   if (!profile) { res.status(404).json({ success: false, message: 'User not found' }); return; }
   res.json(profile);
@@ -61,7 +62,7 @@ router.post('/users/by-email', async (req: Request, res: Response) => {
 
 /**
  * GET /internal/profiles/:id
- * Fetches a Master Profile by raw ID for auth-service validation.
+ * Fetches a Master Profile by raw ID.
  */
 router.get('/profiles/:id', async (req: Request, res: Response) => {
   const profile = await prismaRead.userProfile.findUnique({ where: { id: req.params.id } });
@@ -79,18 +80,80 @@ router.get('/profiles/me/:id', async (req: Request, res: Response) => {
 });
 
 /**
+ * PATCH /internal/profiles/:id/update
+ * Updates mutable profile fields (firstName, lastName only).
+ * Email, phone, isIB are not user-editable.
+ */
+router.patch('/profiles/:id/update', async (req: Request, res: Response) => {
+  const body = req.body as { firstName?: string; lastName?: string };
+  if (body.firstName === undefined && body.lastName === undefined) {
+    res.status(400).json({ success: false, message: 'At least one field (firstName, lastName) is required' });
+    return;
+  }
+  const input: { firstName?: string; lastName?: string } = {};
+  if (body.firstName !== undefined) input.firstName = body.firstName;
+  if (body.lastName !== undefined) input.lastName = body.lastName;
+  await updateProfileDetails(req.params.id!, input);
+  const updated = await getDashboardMe(req.params.id!);
+  res.json({ success: true, data: updated });
+});
+
+/**
  * GET /internal/profiles/kyc/:id
- * Fetches Dashboard KYC metrics.
+ * Fetches Dashboard KYC data.
  */
 router.get('/profiles/kyc/:id', async (req: Request, res: Response) => {
   const data = await getDashboardKyc(req.params.id!);
-  // allow null returns if no KYC exists
   res.json(data || {});
 });
 
 /**
+ * PATCH /internal/profiles/kyc/:id/update
+ * Upserts KYC details. Enforces required fields on first submission.
+ * Locked once kycStatus === 'approved'.
+ */
+router.patch('/profiles/kyc/:id/update', async (req: Request, res: Response) => {
+  const input = req.body as {
+    addressLine1?: string; addressLine2?: string; city?: string; country?: string;
+    pincode?: string; idProofType?: string; addressProofType?: string;
+    idProofPath?: string; addressProofPath?: string;
+  };
+
+  try {
+    await upsertKycDetails(req.params.id!, input);
+    res.json({ success: true });
+  } catch (err) {
+    const message = (err as Error).message;
+    if (message === 'KYC_ALREADY_APPROVED') {
+      res.status(403).json({ success: false, code: 'KYC_ALREADY_APPROVED', message: 'KYC is already approved and cannot be modified.' });
+      return;
+    }
+    if (message.startsWith('MISSING_REQUIRED_KYC_FIELDS:')) {
+      const missing = message.split(':')[1]!.split(',');
+      res.status(422).json({ success: false, code: 'MISSING_KYC_FIELDS', message: 'Required KYC fields are missing for first submission.', fields: missing });
+      return;
+    }
+    if (message === 'NO_LIVE_ACCOUNT') {
+      res.status(404).json({ success: false, code: 'NO_LIVE_ACCOUNT', message: 'No live trading account found for this profile.' });
+      return;
+    }
+    throw err;
+  }
+});
+
+/**
+ * DELETE /internal/profiles/:id
+ * Soft-deletes a user profile and deactivates all associated accounts.
+ * Auth sessions are revoked by auth-service separately after this call.
+ */
+router.delete('/profiles/:id', async (req: Request, res: Response) => {
+  await softDeleteProfile(req.params.id!);
+  res.json({ success: true });
+});
+
+/**
  * POST /internal/users/by-email/all
- * Returns ALL live accounts for an email (multi-account list).
+ * Returns ALL live accounts for an email.
  */
 router.post('/users/by-email/all', async (req: Request, res: Response) => {
   const { email } = req.body as { email: string };
@@ -102,7 +165,6 @@ router.post('/users/by-email/all', async (req: Request, res: Response) => {
 /**
  * GET /internal/users/by-account/:accountNumber
  * Fetch UserAuthContext for a specific trading account.
- * Used by auth-service to mint a Trading JWT after account selection.
  */
 router.get('/users/by-account/:accountNumber', async (req: Request, res: Response) => {
   const user = await getAccountByAccountNumber(req.params.accountNumber!);
@@ -124,7 +186,6 @@ router.get('/users/:id', async (req: Request, res: Response) => {
 /**
  * GET /internal/accounts/:profileId
  * Returns all live + demo accounts linked to a UserProfile.
- * Used by auth-service GET /api/live/accounts.
  */
 router.get('/accounts/:profileId', async (req: Request, res: Response) => {
   const accounts = await getAllAccountsForProfile(req.params.profileId!);
@@ -134,8 +195,6 @@ router.get('/accounts/:profileId', async (req: Request, res: Response) => {
 /**
  * POST /internal/accounts
  * Create a new trading account under an existing UserProfile.
- * Called by auth-service when a logged-in user opens a new account.
- * No email verification needed — profile is already verified.
  */
 router.post('/accounts', async (req: Request, res: Response) => {
   const {
@@ -168,10 +227,6 @@ router.post('/accounts', async (req: Request, res: Response) => {
 // Check-phone
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * GET /internal/users/check-phone/:phone?ownerEmail=<email>
- * Returns { available: true } if the phone is not taken by a different email.
- */
 router.get('/users/check-phone/:phone', async (req: Request, res: Response) => {
   const { ownerEmail } = req.query as { ownerEmail?: string };
   const available = await isPhoneAvailable(decodeURIComponent(req.params.phone!), ownerEmail);
@@ -182,10 +237,6 @@ router.get('/users/check-phone/:phone', async (req: Request, res: Response) => {
 // Check Referral Code
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * GET /internal/users/check-referral/:code
- * Returns { valid: true } if the referralCode corresponds to an existing Profile.
- */
 router.get('/users/check-referral/:code', async (req: Request, res: Response) => {
   const code = req.params.code;
   if (!code) { res.status(400).json({ success: false, message: 'Code is required' }); return; }
@@ -211,7 +262,6 @@ router.patch('/users/:id/view-password', async (req: Request, res: Response) => 
   res.json({ success: true });
 });
 
-
 /**
  * PATCH /internal/profiles/:profileId/ib
  * Updates the isIB status of a UserProfile.
@@ -227,20 +277,11 @@ router.patch('/profiles/:profileId/ib', async (req: Request, res: Response) => {
 // Email verification
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * PATCH /internal/profiles/:profileId/verify-email
- * Marks the UserProfile as email-verified.
- * Called after OTP verification — verification is per-profile, not per account.
- */
 router.patch('/profiles/:profileId/verify-email', async (req: Request, res: Response) => {
   await markProfileVerified(req.params.profileId!);
   res.json({ success: true });
 });
 
-/**
- * PATCH /internal/users/:id/verify-email
- * Legacy route — resolves the user's profile and marks it verified.
- */
 router.patch('/users/:id/verify-email', async (req: Request, res: Response) => {
   await markEmailVerified(req.params.id!);
   res.json({ success: true });
@@ -259,12 +300,6 @@ router.patch('/users/:id/touch-login', async (req: Request, res: Response) => {
 /**
  * GET /internal/admin/users
  * GBAC-scoped paged user listing for the admin panel.
- *
- * The order-gateway (or admin-service) reads allCountries + countryCodes from
- * the admin JWT and forwards them as JSON in x-admin-scope header:
- *   { "allCountries": false, "countryCodes": ["IN", "AE"] }
- *
- * This service NEVER parses the JWT — it trusts the scope passed by the gateway.
  */
 router.get('/admin/users', async (req: Request, res: Response) => {
   const scopeHeader = req.headers['x-admin-scope'] as string | undefined;

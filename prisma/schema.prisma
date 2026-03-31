@@ -130,6 +130,8 @@ model UserProfile {
   referredBy         String?   @db.Uuid
   securityQuestion   String?
   securityAnswerHash String?
+  /// Set when user initiates account deletion (30-day grace period before hard purge)
+  deletedAt          DateTime? @db.Timestamptz()
   createdAt          DateTime  @default(now()) @db.Timestamptz()
   updatedAt          DateTime  @updatedAt @db.Timestamptz()
 
@@ -138,6 +140,7 @@ model UserProfile {
 
   @@index([email])
   @@index([phone])
+  @@index([deletedAt])
   @@map("user_profiles")
 }
 

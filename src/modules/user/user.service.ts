@@ -801,9 +801,155 @@ export async function getDashboardKyc(profileId: string) {
   const kyc = liveAcc.kyc;
 
   return {
-    address: { line1: kyc.addressLine1, city: kyc.city, country: kyc.country },
-    idProof: { type: kyc.idProofType, status: kyc.idProofPath ? 'uploaded' : 'pending', frontImage: kyc.idProofPath },
-    addressProof: { status: kyc.addressProofPath ? 'uploaded' : 'pending', rejectionReason: kyc.rejectionReason },
-    bankDetails: { name: kyc.bankName, accountNumber: kyc.bankAccountNumber }
+    addressLine1: kyc.addressLine1,
+    addressLine2: kyc.addressLine2,
+    city: kyc.city,
+    state: kyc.state,
+    country: kyc.country,
+    pincode: kyc.pincode,
+    idProofType: kyc.idProofType,
+    idProofPath: kyc.idProofPath,
+    addressProofType: kyc.addressProofType,
+    addressProofPath: kyc.addressProofPath,
+    submittedAt: kyc.submittedAt,
+    reviewedAt: kyc.reviewedAt,
+    rejectionReason: kyc.rejectionReason,
   };
+}
+
+// ── Profile update (firstName, lastName only) ─────────────────────────────────
+
+export interface UpdateProfileInput {
+  firstName?: string;
+  lastName?: string;
+}
+
+export async function updateProfileDetails(profileId: string, input: UpdateProfileInput): Promise<void> {
+  await prismaWrite.userProfile.update({
+    where: { id: profileId },
+    data: {
+      ...(input.firstName !== undefined && { firstName: input.firstName }),
+      ...(input.lastName !== undefined && { lastName: input.lastName }),
+    },
+  });
+}
+
+// ── KYC upsert (locked once approved) ────────────────────────────────────────
+
+export interface UpsertKycInput {
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  country?: string;
+  pincode?: string;
+  idProofType?: string;
+  addressProofType?: string;
+  idProofPath?: string;       // set by auth-service after file upload
+  addressProofPath?: string;  // set by auth-service after file upload
+}
+
+/**
+ * Upserts KYC details for the first live account linked to a profile.
+ *
+ * First-submit rule: if the existing KYC row has ALL core fields null (never submitted),
+ * all fields except addressLine2 are required. Throws if any are missing.
+ *
+ * Lock rule: KYC cannot be modified once kycStatus === 'approved'.
+ */
+export async function upsertKycDetails(profileId: string, input: UpsertKycInput): Promise<void> {
+  // Guard: check if KYC is already approved
+  const profile = await prismaRead.userProfile.findUnique({
+    where: { id: profileId },
+    select: { kycStatus: true },
+  });
+  if (!profile) throw new Error('PROFILE_NOT_FOUND');
+  if (profile.kycStatus === 'approved') throw new Error('KYC_ALREADY_APPROVED');
+
+  // Find the first live account for this profile
+  const liveAcc = await prismaRead.liveUser.findFirst({
+    where: { userProfileId: profileId },
+    include: { kyc: true },
+  });
+  if (!liveAcc) throw new Error('NO_LIVE_ACCOUNT');
+
+  const existingKyc = liveAcc.kyc;
+
+  // First-submit rule: if kyc doesn't exist or all core fields are null → all required
+  const isFirstSubmit =
+    !existingKyc ||
+    (!existingKyc.addressLine1 &&
+      !existingKyc.city &&
+      !existingKyc.country &&
+      !existingKyc.pincode &&
+      !existingKyc.idProofType &&
+      !existingKyc.addressProofType &&
+      !existingKyc.idProofPath &&
+      !existingKyc.addressProofPath);
+
+  if (isFirstSubmit) {
+    const requiredFields: (keyof UpsertKycInput)[] = [
+      'addressLine1', 'city', 'country', 'pincode',
+      'idProofType', 'addressProofType', 'idProofPath', 'addressProofPath',
+    ];
+    const missing = requiredFields.filter((f) => !input[f]);
+    if (missing.length > 0) {
+      throw new Error(`MISSING_REQUIRED_KYC_FIELDS:${missing.join(',')}`);
+    }
+  }
+
+  const data: Prisma.LiveUserKycUncheckedCreateInput & Prisma.LiveUserKycUncheckedUpdateInput = {
+    userId: liveAcc.id,
+    ...(input.addressLine1 !== undefined && { addressLine1: input.addressLine1 }),
+    ...(input.addressLine2 !== undefined && { addressLine2: input.addressLine2 }),
+    ...(input.city !== undefined && { city: input.city }),
+    ...(input.country !== undefined && { country: input.country }),
+    ...(input.pincode !== undefined && { pincode: input.pincode }),
+    ...(input.idProofType !== undefined && { idProofType: input.idProofType }),
+    ...(input.addressProofType !== undefined && { addressProofType: input.addressProofType }),
+    ...(input.idProofPath !== undefined && { idProofPath: input.idProofPath }),
+    ...(input.addressProofPath !== undefined && { addressProofPath: input.addressProofPath }),
+    // Set submittedAt on first real submission
+    ...(isFirstSubmit && { submittedAt: new Date() }),
+  };
+
+  await prismaWrite.liveUserKyc.upsert({
+    where: { userId: liveAcc.id },
+    create: data as Prisma.LiveUserKycUncheckedCreateInput,
+    update: data as Prisma.LiveUserKycUncheckedUpdateInput,
+  });
+
+  // Transition kycStatus to 'submitted' if this is the first submission
+  if (isFirstSubmit) {
+    await prismaWrite.userProfile.update({
+      where: { id: profileId },
+      data: { kycStatus: 'submitted' },
+    });
+  }
+}
+
+// ── Soft delete account ───────────────────────────────────────────────────────
+
+/**
+ * Soft-deletes a user profile:
+ *  - Sets deletedAt on UserProfile
+ *  - Deactivates all live + demo accounts
+ * Trade history in order-db is NOT touched (regulatory retention requirement).
+ * Auth sessions are revoked separately by auth-service after this call.
+ */
+export async function softDeleteProfile(profileId: string): Promise<void> {
+  await prismaWrite.$transaction([
+    prismaWrite.userProfile.update({
+      where: { id: profileId },
+      data: { deletedAt: new Date(), isVerified: false },
+    }),
+    prismaWrite.liveUser.updateMany({
+      where: { userProfileId: profileId },
+      data: { isActive: false, deletedAt: new Date() },
+    }),
+    prismaWrite.demoUser.updateMany({
+      where: { userProfileId: profileId },
+      data: { isActive: false },
+    }),
+  ]);
+  logger.info({ profileId }, 'User profile soft-deleted');
 }
