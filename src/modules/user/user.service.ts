@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prismaWrite, prismaRead } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
+import { publishEvent } from '../../lib/kafka';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -155,7 +156,7 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
   }
 
   // ── Create the LiveUser trading account ─────────────────────────────────────
-  await prismaWrite.liveUser.create({
+  const liveUser = await prismaWrite.liveUser.create({
     data: {
       userProfileId: profileId,
       accountNumber: e.accountNumber,
@@ -171,6 +172,21 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
   });
 
   logger.info({ accountNumber: e.accountNumber, email: e.email }, 'Live user registered');
+ 
+  // ── Sync to other services ──────────────────────────────────────────────────
+  void publishEvent('user.events', profileId, {
+    type:           'USER_CREATED',
+    userProfileId:  profileId,
+    liveAccountId:  liveUser.id,
+    accountNumber:  e.accountNumber,
+    fullName:       `${e.firstName ?? ''} ${e.lastName ?? ''}`.trim(),
+    email:          e.email,
+    phoneNumber:    e.phoneNumber,
+    country:        e.country,
+    groupName:      e.groupName,
+    currency:       e.currency,
+    referredByCode: e.referredByCode,
+  });
 }
 
 export async function registerDemoUserFromKafka(event: unknown): Promise<void> {

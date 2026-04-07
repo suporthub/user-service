@@ -16,7 +16,7 @@ const app = express();
 
 app.use(helmet());
 app.set('trust proxy', 1);
-app.use(cors({ origin: config.allowedOrigins, credentials: true }));
+// app.use(cors({ origin: config.allowedOrigins, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(pinoHttp({ logger }));
