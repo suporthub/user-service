@@ -1,7 +1,6 @@
 import 'express-async-errors';
 import express from 'express';
 import helmet from 'helmet';
-import cors from 'cors';
 import compression from 'compression';
 import { pinoHttp } from 'pino-http';
 import { config } from './config/env';
