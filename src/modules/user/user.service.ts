@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prismaWrite, prismaRead } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { publishEvent } from '../../lib/kafka';
+import { config } from '../../config/env';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -125,17 +126,9 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
     }
 
     // ── Referral Resolution ───────────────────────────────────────────────────
-    let referredById: string | null = null;
-    if (e.referredByCode) {
-      const referrer = await prismaRead.userProfile.findUnique({
-        where: { referralCode: e.referredByCode },
-        select: { id: true },
-      });
-      if (referrer) {
-        referredById = referrer.id;
-      } else {
-        logger.warn({ code: e.referredByCode }, 'ReferredByCode provided but not found; proceeding without referrer');
-      }
+    const referredById = e.referredByCode ? await resolveReferrerId(e.referredByCode) : null;
+    if (e.referredByCode && !referredById) {
+      logger.warn({ code: e.referredByCode }, 'ReferredByCode provided but not found; proceeding without referrer');
     }
 
     const uniqueReferralCode = await generateUniqueReferralCode();
@@ -759,11 +752,42 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function isValidReferralCode(code: string): Promise<boolean> {
+  const referrerId = await resolveReferrerId(code);
+  return referrerId !== null;
+}
+
+/**
+ * Resolves a referral code to a UserProfile.id.
+ * Checks:
+ *   1. Local UserProfile.referralCode
+ *   2. Remote IbProfile.referralCode (via ib-service)
+ */
+export async function resolveReferrerId(code: string): Promise<string | null> {
+  // 1. Check local UserProfile
   const profile = await prismaRead.userProfile.findUnique({
     where: { referralCode: code },
     select: { id: true },
   });
-  return profile !== null;
+  if (profile) return profile.id;
+
+  // 2. Check remote IB Service
+  try {
+    const resp = await fetch(
+      `${config.ibServiceUrl}/internal/ib/check-referral/${encodeURIComponent(code)}`,
+      {
+        headers: { 'x-service-secret': config.internalSecret },
+      }
+    );
+
+    if (resp.ok) {
+      const { valid, userProfileId } = await resp.json() as { valid: boolean; userProfileId: string | null };
+      if (valid && userProfileId) return userProfileId;
+    }
+  } catch (err) {
+    logger.error({ err, code }, 'Failed to check referral code against ib-service');
+  }
+
+  return null;
 }
 
 /**
