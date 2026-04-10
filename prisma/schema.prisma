@@ -40,21 +40,20 @@ enum StrategyVisibility {
 }
 
 enum CommissionType {
-  per_lot
-  per_trade
-  percent
+  round_turn
+  entry_only
+  exit_only
 }
 
 enum CommissionValueType {
-  money
-  percent
-  pips
+  per_lot
+  percentage
 }
 
 enum SwapType {
-  pips
-  percent
-  currency
+  points
+  percentage
+  noswap
 }
 
 enum MarginCalcMode {
@@ -66,6 +65,13 @@ enum MarginCalcMode {
   cfd_index
   /// fixed margin per lot regardless of price — some exotics
   fixed
+}
+
+enum InstrumentType {
+  forex
+  index
+  commodity
+  crypto
 }
 
 enum BonusCampaignType {
@@ -504,6 +510,30 @@ model Group {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Instruments (Master Assets Table)
+// Stores intrinsic properties of the asset globally.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Instrument {
+  symbol         String   @id // e.g. "XAUUSD"
+  name           String?  // e.g. "Gold vs US Dollar"
+  description    String?
+  /// 0=forex, 1=metal, 2=index, 3=commodity, 4=crypto
+  instrumentType InstrumentType @default(forex)
+  contractSize   Decimal  @default(100000) @db.Decimal(18, 4)
+  profitCurrency String   @default("USD")
+  pipCurrency    String?
+  pips           Decimal  @default(0.0001) @db.Decimal(10, 4)
+  showPoints     Int      @default(5) @db.SmallInt
+
+  groupSymbols   GroupSymbol[]
+  sessions       MarketSession[]
+  holidays       MarketHoliday[]
+
+  @@map("instruments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Group Symbols — trading config per group × symbol combination
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -512,46 +542,35 @@ model GroupSymbol {
   groupId             String              @db.Uuid
   group               Group               @relation(fields: [groupId], references: [id])
   symbol              String
+  instrument          Instrument          @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+  
+  // -- Group-Specific Overrides Below --
   // Spread
-  /// 'variable' = markup added on top of LP's spread (client sees varying total)
-  /// 'fixed'    = client always sees exactly spread pips (broker absorbs LP widening)
+  /// 'variable' = markup added on top of LP's spread
+  /// 'fixed'    = client always sees exactly spread pips
   spreadType          String              @default("variable") @db.VarChar(20)
-  spread              Decimal             @default(0) @db.Decimal(10, 5)
-  spreadPip           Decimal             @default(1) @db.Decimal(10, 5)
-  /// For variable mode only: cap the final spread at this value (e.g. 10 pips during news)
-  maxSpread           Decimal?            @db.Decimal(10, 5)
+  spread              Decimal             @default(0) @db.Decimal(18, 5)
+  spreadPip           Decimal             @default(1) @db.Decimal(18, 5)
+  /// For variable mode only: cap the final spread at this value
+  maxSpread           Decimal?            @db.Decimal(18, 5)
   // Swap
-  swapBuy             Decimal             @default(0) @db.Decimal(10, 4)
-  swapSell            Decimal             @default(0) @db.Decimal(10, 4)
-  swapType            SwapType            @default(pips)
+  swapBuy             Decimal             @default(0) @db.Decimal(18, 4)
+  swapSell            Decimal             @default(0) @db.Decimal(18, 4)
+  swapType            SwapType            @default(points)
   // Commission
-  commission          Decimal             @default(0) @db.Decimal(10, 5)
-  commissionType      CommissionType      @default(per_lot)
-  commissionValueType CommissionValueType @default(money)
+  commission          Decimal             @default(0) @db.Decimal(18, 5)
+  commissionType      CommissionType      @default(round_turn)
+  commissionValueType CommissionValueType @default(per_lot)
   // Margin
   marginPct           Decimal             @default(1) @db.Decimal(8, 4)
-  /// Drives margin calculation formula — replaces if(instrument_type==4) hardcoding
   marginCalcMode      MarginCalcMode      @default(standard)
-  /// Multiplier used when marginCalcMode = 'crypto' or 'fixed'
   marginFactor        Decimal             @default(1.0) @db.Decimal(10, 6)
   // Lot constraints
   minLot              Decimal             @default(0.01) @db.Decimal(12, 4)
   maxLot              Decimal             @default(100) @db.Decimal(12, 4)
   lotStep             Decimal             @default(0.01) @db.Decimal(12, 4)
-  // Instrument details
-  contractSize        Decimal             @default(100000) @db.Decimal(18, 4)
-  /// Result currency for P&L calc. e.g. 'USD' for XAUUSD, 'JPY' for USDJPY
-  profitCurrency      String              @default("USD")
-  pipCurrency         String?
-  pips                Decimal             @default(0.0001) @db.Decimal(10, 4)
-  /// Decimal places shown to user (V1 show_points)
-  showPoints          Int                 @default(5) @db.SmallInt
-  /// 0=forex, 1=metal, 2=index, 3=commodity, 4=crypto
-  instrumentType      Int                 @default(0) @db.SmallInt
   // Order execution
-  /// Max slippage tolerance in pips (V1 deviaton)
   deviation           Decimal             @default(0) @db.Decimal(10, 4)
-  /// Bonus points per lot (V1 bonus)
   bonus               Decimal             @default(0) @db.Decimal(10, 4)
   isTradable          Boolean             @default(true)
 
@@ -563,20 +582,20 @@ model GroupSymbol {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Market Sessions — when each symbol can be traded
-// Separate from group_symbols: market hours are instrument-level, not per-group
 // ─────────────────────────────────────────────────────────────────────────────
 
 model MarketSession {
-  id        String  @id @default(uuid()) @db.Uuid
-  symbol    String
+  id         String      @id @default(uuid()) @db.Uuid
+  symbol     String
+  instrument Instrument  @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
   /// 0 = Sunday, 1 = Monday, ... 6 = Saturday
-  dayOfWeek Int     @db.SmallInt
+  dayOfWeek  Int         @db.SmallInt
   /// 'HH:MM' in UTC e.g. '00:00'
-  openTime  String
+  openTime   String
   /// 'HH:MM' in UTC e.g. '23:59'
-  closeTime String
-  timezone  String  @default("UTC")
-  isActive  Boolean @default(true)
+  closeTime  String
+  timezone   String      @default("UTC")
+  isActive   Boolean     @default(true)
 
   @@unique([symbol, dayOfWeek])
   @@index([symbol, isActive])
@@ -585,17 +604,23 @@ model MarketSession {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Market Holidays — exchange holiday closures
-// NULL symbol = applies to all symbols (e.g. Christmas)
 // ─────────────────────────────────────────────────────────────────────────────
 
 model MarketHoliday {
-  id          String   @id @default(uuid()) @db.Uuid
-  /// NULL = applies to all symbols
-  symbol      String?
-  holidayDate DateTime @db.Date
-  description String?
+  id             String      @id @default(uuid()) @db.Uuid
+  
+  /// If set, holiday applies to this specific symbol
+  symbol         String?
+  instrument     Instrument? @relation(fields: [symbol], references: [symbol], onDelete: Cascade)
+  
+  /// If set, holiday applies to all symbols matching this instrumentType
+  instrumentType InstrumentType?
+  
+  holidayDate    DateTime    @db.Date
+  description    String?
 
-  @@unique([symbol, holidayDate])
+  @@index([symbol, holidayDate])
+  @@index([instrumentType, holidayDate])
   @@map("market_holidays")
 }
 
