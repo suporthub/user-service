@@ -1,4 +1,5 @@
-import { Kafka, EachMessagePayload } from 'kafkajs';
+import { Kafka, EachMessagePayload, Producer } from 'kafkajs';
+import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/env';
 import { logger } from './logger';
 import { registerLiveUserFromKafka, registerDemoUserFromKafka } from '../modules/user/user.service';
@@ -34,7 +35,39 @@ const consumer = kafka.consumer({
   maxWaitTimeInMs:              500,
   retry: { retries: 10 },
 });
-
+ 
+let producer: Producer | null = null;
+ 
+async function getProducer(): Promise<Producer> {
+  if (!producer) {
+    producer = kafka.producer();
+    await producer.connect();
+  }
+  return producer;
+}
+ 
+export async function publishEvent(topic: string, key: string, payload: Record<string, unknown>): Promise<void> {
+  try {
+    const p = await getProducer();
+    await p.send({
+      topic,
+      messages: [
+        {
+          key,
+          value: JSON.stringify({
+            eventId: uuidv4(),
+            ...payload,
+            createdAt: new Date().toISOString(),
+          }),
+        },
+      ],
+    });
+    logger.info({ topic, key }, 'Kafka event published');
+  } catch (err) {
+    logger.error({ err, topic, key }, 'Failed to publish Kafka event');
+  }
+}
+ 
 // ── Message router ────────────────────────────────────────────────────────────
 
 async function handleMessage({ topic, message }: EachMessagePayload): Promise<void> {

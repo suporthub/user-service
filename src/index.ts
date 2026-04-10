@@ -1,7 +1,6 @@
 import 'express-async-errors';
 import express from 'express';
 import helmet from 'helmet';
-import cors from 'cors';
 import compression from 'compression';
 import { pinoHttp } from 'pino-http';
 import { config } from './config/env';
@@ -17,7 +16,7 @@ const app = express();
 
 app.use(helmet());
 app.set('trust proxy', 1);
-app.use(cors({ origin: config.allowedOrigins, credentials: true }));
+// app.use(cors({ origin: config.allowedOrigins, credentials: true }));
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(pinoHttp({ logger }));
