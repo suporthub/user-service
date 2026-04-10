@@ -7,6 +7,7 @@ import { pinoHttp } from 'pino-http';
 import { config } from './config/env';
 import { logger } from './lib/logger';
 import { connectDB, disconnectDB } from './lib/prisma';
+import { connectRedis, disconnectRedis } from './lib/redis';
 import { startKafkaConsumer, stopKafkaConsumer } from './lib/kafka';
 import { AppError } from './utils/errors';
 import internalRoutes from './routes/internal.routes';
@@ -49,8 +50,9 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 
 async function bootstrap(): Promise<void> {
   await connectDB();
+  await connectRedis();
   await startKafkaConsumer();
-  logger.info('user_db + Kafka consumer ready');
+  logger.info('user_db, Redis, and Kafka consumer ready');
 
   const server = app.listen(config.port, () => {
     logger.info({ port: config.port }, `🚀 user-service started on :${config.port}`);
@@ -60,6 +62,7 @@ async function bootstrap(): Promise<void> {
     logger.info({ signal }, 'Shutting down user-service…');
     server.close(async () => {
       await stopKafkaConsumer();
+      await disconnectRedis();
       await disconnectDB();
       process.exit(0);
     });

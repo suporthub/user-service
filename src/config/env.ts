@@ -10,6 +10,14 @@ const schema = z.object({
   userDatabaseUrl:     z.string().url(),
   userDatabaseUrlRead: z.string().url().optional(),
 
+  // Redis
+  redisClusterNodes: z.string().default('127.0.0.1:6379').transform((v) => {
+    return v.split(',').map((node) => {
+      const [host, portStr] = node.trim().split(':');
+      return { host: host!, port: parseInt(portStr ?? '6379', 10) };
+    });
+  }),
+
   // Kafka
   kafkaBrokers:    z.string().transform((v) => v.split(',')),
   kafkaClientId:   z.string().default('user-service'),
@@ -25,6 +33,7 @@ const parsed = schema.safeParse({
   nodeEnv:           process.env.NODE_ENV,
   userDatabaseUrl:     process.env.USER_DATABASE_URL,
   userDatabaseUrlRead: process.env.USER_DATABASE_URL_READ,
+  redisClusterNodes: process.env.REDIS_CLUSTER_NODES,
   kafkaBrokers:    process.env.KAFKA_BROKERS,
   kafkaClientId:   process.env.KAFKA_CLIENT_ID,
   kafkaGroupId:    process.env.KAFKA_GROUP_ID,
