@@ -4,6 +4,7 @@ import { config } from '../config/env';
 import { logger } from './logger';
 import { registerLiveUserFromKafka, registerDemoUserFromKafka } from '../modules/user/user.service';
 import { recordAuditLog } from '../modules/audit/audit.service';
+import { handleDepositCompleted } from '../modules/payment/payment.consumer';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kafka Consumer
@@ -103,6 +104,9 @@ async function handleMessage({ topic, message }: EachMessagePayload): Promise<vo
     case 'DEMO_USER_REGISTER':
       await registerDemoUserFromKafka(event);
       break;
+    case 'DEPOSIT_COMPLETED':
+      await handleDepositCompleted(event);
+      break;
     default:
       logger.debug({ type: event.type }, 'Unhandled event type — ignoring');
   }
@@ -149,6 +153,7 @@ export async function startKafkaConsumer(): Promise<void> {
   // the topic yet (e.g. first docker compose up before kafka-init finishes).
   await subscribeWithRetry('user.register');
   await subscribeWithRetry('user.journal.events');
+  await subscribeWithRetry('payment.events');  // Deposit/withdrawal completions from payment-service
 
   await consumer.run({
     eachMessage: async (payload) => {

@@ -26,6 +26,9 @@ export interface TradingAccountSummary {
 }
 
 export interface DashboardAccountSummary {
+  /// UUID of the trading account (LiveUser.id or DemoUser.id).
+  /// Frontend must send this as tradingAccountId in deposit/withdrawal requests.
+  id: string;
   accountNumber: string;
   type: 'live' | 'demo';
   currency: string;
@@ -338,46 +341,54 @@ export async function getAllAccountsForProfile(profileId: string): Promise<Dashb
     prismaRead.liveUser.findMany({
       where: { userProfileId: profileId, isActive: true },
       select: {
-        accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, accountName: true,
+        id: true,
+        accountNumber: true, currency: true, leverage: true, groupName: true,
+        isActive: true, accountName: true, walletBalance: true,
         strategyProvider: { select: { id: true } },
-        copyFollowings: { select: { id: true } }
+        copyFollowings:   { select: { id: true } },
       },
     }),
     prismaRead.demoUser.findMany({
       where: { userProfileId: profileId, isActive: true },
-      select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, demoBalance: true, accountName: true },
+      select: {
+        id: true,
+        accountNumber: true, currency: true, leverage: true, groupName: true,
+        isActive: true, demoBalance: true, accountName: true,
+      },
     }),
   ]);
 
   return [
     ...live.map(a => {
       let uType = 'live';
-      if (a.strategyProvider) uType = 'strategy';
+      if (a.strategyProvider)            uType = 'strategy';
       else if (a.copyFollowings.length > 0) uType = 'copy_follower';
       return {
-        accountNumber: a.accountNumber,
-        type: 'live' as const,
-        currency: a.currency,
-        leverage: a.leverage,
-        groupName: a.groupName,
-        isActive: a.isActive,
-        accountName: a.accountName,
-        userType: uType,
+        id:             a.id,               // UUID — use as tradingAccountId in deposits
+        accountNumber:  a.accountNumber,
+        type:           'live' as const,
+        currency:       a.currency,
+        leverage:       a.leverage,
+        groupName:      a.groupName,
+        isActive:       a.isActive,
+        accountName:    a.accountName,
+        userType:       uType,
         accountVariant: a.currency,
-        walletBalance: 0, // Placeholder until MT5 actual balance sync
+        walletBalance:  Number(a.walletBalance),
       };
     }),
     ...demo.map(a => ({
-      accountNumber: a.accountNumber,
-      type: 'demo' as const,
-      currency: a.currency,
-      leverage: a.leverage,
-      groupName: a.groupName,
-      isActive: a.isActive,
-      accountName: a.accountName,
-      userType: 'demo',
+      id:             a.id,               // UUID — use as tradingAccountId in deposits
+      accountNumber:  a.accountNumber,
+      type:           'demo' as const,
+      currency:       a.currency,
+      leverage:       a.leverage,
+      groupName:      a.groupName,
+      isActive:       a.isActive,
+      accountName:    a.accountName,
+      userType:       'demo',
       accountVariant: a.currency,
-      walletBalance: Number(a.demoBalance),
+      walletBalance:  Number(a.demoBalance),
     })),
   ];
 }

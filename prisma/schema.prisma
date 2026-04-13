@@ -175,6 +175,10 @@ model LiveUser {
   groupName           String      @default("Standard")
   leverage            Int         @default(100) @db.SmallInt
   currency            String      @default("USD")
+  /// Running wallet balance — updated atomically whenever a UserTransaction is approved.
+  /// This is a denormalized cache of SUM(transactions). Source of truth is UserTransaction ledger.
+  /// Never modify this directly — always go through the transaction service.
+  walletBalance       Decimal     @default(0) @db.Decimal(18, 6)
   /// True when the user registered themselves; false when created by admin
   isSelfTrading       Boolean     @default(true)
   isActive            Boolean     @default(true)
@@ -516,6 +520,7 @@ model Group {
 
 model Instrument {
   symbol         String   @id // e.g. "XAUUSD"
+  
   name           String?  // e.g. "Gold vs US Dollar"
   description    String?
   /// 0=forex, 1=metal, 2=index, 3=commodity, 4=crypto
@@ -625,29 +630,88 @@ model MarketHoliday {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// User Transactions — deposits, withdrawals, bonuses (partitioned by month in prod)
+// User Transactions — deposits, withdrawals, bonuses, adjustments
+// Production-grade double-entry ledger with before/after balance snapshots.
+// This table is the source of truth for all wallet movements and is used
+// directly for client-downloadable account statements (PDF/CSV).
 // ─────────────────────────────────────────────────────────────────────────────
 
+enum TxnDirection {
+  CREDIT  // Money coming INTO the account (deposit, bonus, profit adjustment)
+  DEBIT   // Money going OUT of the account (withdrawal, fee, loss adjustment)
+}
+
 model UserTransaction {
-  id           String            @id @default(uuid()) @db.Uuid
-  userId       String            @db.Uuid
-  user         LiveUser          @relation(fields: [userId], references: [id])
-  userType     String
-  txnType      TransactionType
-  amount       Decimal           @db.Decimal(18, 6)
-  currency     String            @default("USD")
-  status       TransactionStatus @default(pending)
-  gateway      String?
-  gatewayTxnId String?
-  notes        String?
-  processedBy  String?           @db.Uuid
-  createdAt    DateTime          @default(now()) @db.Timestamptz()
-  updatedAt    DateTime          @updatedAt @db.Timestamptz()
+  id          String            @id @default(uuid()) @db.Uuid
+
+  // ── Who owns this transaction ─────────────────────────────────────────────
+  userId      String            @db.Uuid
+  user        LiveUser          @relation(fields: [userId], references: [id])
+  /// 'live' | 'demo' | 'strategy_provider'
+  userType    String            @db.VarChar(30)
+  /// The specific trading account (LiveUser.id) being credited or debited.
+  /// REQUIRED for multi-account support — a UserProfile can own many LiveUser rows.
+  tradingAccountId String?      @db.Uuid
+
+  // ── What happened ─────────────────────────────────────────────────────────
+  txnType     TransactionType
+  /// CREDIT = money in, DEBIT = money out. Always explicit — never infer from sign.
+  direction   TxnDirection
+  /// Always positive. Direction determines add/subtract.
+  amount      Decimal           @db.Decimal(18, 6)
+  currency    String            @default("USD") @db.VarChar(10)
+
+  // ── Balance snapshots — the industry-standard audit trail ─────────────────
+  /// Wallet balance immediately BEFORE this transaction was applied.
+  /// Populated at the moment the transaction is approved and balance is updated.
+  balanceBefore Decimal         @db.Decimal(18, 6)
+  /// Wallet balance immediately AFTER this transaction was applied.
+  /// = balanceBefore + amount (CREDIT) or balanceBefore - amount (DEBIT)
+  /// This is what gets printed on client statements per transaction line.
+  balanceAfter  Decimal         @db.Decimal(18, 6)
+
+  // ── Client-facing fields (printed on PDF/CSV statements) ──────────────────
+  /// Human-readable reference, generated on creation: TXN-20260413-A3F2C1
+  /// Shown to user and support team. Used for dispute tracking.
+  txnRef      String            @unique @db.VarChar(32)
+  /// User-facing description for statements: "Deposit via USDT (TRC20)", "Withdrawal to Bank"
+  description String?           @db.VarChar(255)
+
+  // ── Status & lifecycle ────────────────────────────────────────────────────
+  status      TransactionStatus @default(pending)
+  /// Admin UUID who approved/rejected. Required for compliance audit.
+  approvedBy  String?           @db.Uuid
+  approvedAt  DateTime?         @db.Timestamptz()
+  rejectedAt  DateTime?         @db.Timestamptz()
+  rejectionReason String?
+
+  // ── Cross-service traceability ────────────────────────────────────────────
+  /// GatewayPayment.id from payment_db — links this ledger entry to the gateway record
+  linkedPaymentId String?       @db.Uuid
+  /// Raw gateway transaction ID (Tylt orderId, Pay2Pay txnId, Stripe pi_xxx)
+  gatewayTxnId    String?       @db.VarChar(128)
+  gateway         String?       @db.VarChar(50)
+
+  // ── Compliance & audit ───────────────────────────────────────────────────
+  /// Client IP at the time of deposit/withdrawal initiation. Required for AML audit.
+  ip          String?           @db.VarChar(45)
+
+  // ── Internal notes ────────────────────────────────────────────────────────
+  /// Internal admin notes. NOT shown to client.
+  notes       String?
+
+  createdAt   DateTime          @default(now()) @db.Timestamptz()
+  updatedAt   DateTime          @updatedAt @db.Timestamptz()
 
   bonusAllocations UserBonusAllocation[]
 
-  @@index([userId, userType, txnType])
+  // Fast lookups for statements (userId + date range is the most common query)
+  @@index([userId, userType, createdAt(sort: Desc)])
+  @@index([tradingAccountId, createdAt(sort: Desc)])
+  @@index([userId, txnType, status])
+  @@index([txnRef])
   @@index([status, createdAt])
+  @@index([linkedPaymentId])
   @@map("user_transactions")
 }
 
