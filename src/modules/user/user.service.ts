@@ -16,6 +16,8 @@ export interface UserProfileContext {
 }
 
 export interface TradingAccountSummary {
+  id: string;
+  uuid: string;
   accountNumber: string;
   type: 'live' | 'demo';
   currency: string;
@@ -29,6 +31,7 @@ export interface DashboardAccountSummary {
   /// UUID of the trading account (LiveUser.id or DemoUser.id).
   /// Frontend must send this as tradingAccountId in deposit/withdrawal requests.
   id: string;
+  uuid: string;
   accountNumber: string;
   type: 'live' | 'demo';
   currency: string;
@@ -266,11 +269,11 @@ export async function getUserProfileByEmail(email: string): Promise<
     include: {
       liveAccounts: {
         where: { isActive: true },
-        select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true },
+        select: { id: true, accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true },
       },
       demoAccounts: {
         where: { isActive: true },
-        select: { accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, demoBalance: true },
+        select: { id: true, accountNumber: true, currency: true, leverage: true, groupName: true, isActive: true, demoBalance: true },
       },
     },
   });
@@ -284,8 +287,8 @@ export async function getUserProfileByEmail(email: string): Promise<
     isVerified: profile.isVerified,
     kycStatus: profile.kycStatus,
     accounts: [
-      ...profile.liveAccounts.map(a => ({ ...a, type: 'live' as const })),
-      ...profile.demoAccounts.map(a => ({ ...a, type: 'demo' as const, demoBalance: Number(a.demoBalance) })),
+      ...profile.liveAccounts.map(a => ({ ...a, type: 'live' as const, uuid: a.id })),
+      ...profile.demoAccounts.map(a => ({ ...a, type: 'demo' as const, demoBalance: Number(a.demoBalance), uuid: a.id })),
     ],
   };
 }
@@ -365,6 +368,7 @@ export async function getAllAccountsForProfile(profileId: string): Promise<Dashb
       else if (a.copyFollowings.length > 0) uType = 'copy_follower';
       return {
         id:             a.id,               // UUID — use as tradingAccountId in deposits
+        uuid:           a.id,
         accountNumber:  a.accountNumber,
         type:           'live' as const,
         currency:       a.currency,
@@ -373,12 +377,13 @@ export async function getAllAccountsForProfile(profileId: string): Promise<Dashb
         isActive:       a.isActive,
         accountName:    a.accountName,
         userType:       uType,
-        accountVariant: a.currency,
+        accountVariant:  a.currency,
         walletBalance:  Number(a.walletBalance),
       };
     }),
     ...demo.map(a => ({
       id:             a.id,               // UUID — use as tradingAccountId in deposits
+      uuid:           a.id,
       accountNumber:  a.accountNumber,
       type:           'demo' as const,
       currency:       a.currency,
