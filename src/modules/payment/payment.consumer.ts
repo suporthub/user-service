@@ -66,7 +66,7 @@ export async function handleDepositCompleted(raw: Record<string, unknown>): Prom
     return;
   }
 
-  const { eventId, paymentId, userId, userType, tradingAccountId, creditAmountUsd, gateway, merchantRefId } = event as DepositCompletedEvent;
+  const { eventId, paymentId, userId, userType, tradingAccountId, creditAmountUsd, gateway } = event as DepositCompletedEvent;
 
   logger.info({ eventId, paymentId, userId, tradingAccountId, creditAmountUsd }, '[payment.consumer] Processing DEPOSIT_COMPLETED');
 
@@ -180,7 +180,6 @@ export async function handleDepositCompleted(raw: Record<string, unknown>): Prom
         select: { id: true },
       });
       if (txn) {
-        const fetch = (await import('node-fetch')).default;
         await fetch(`${internalPaymentServiceUrl}/internal/payments/${paymentId}/link-txn`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json' },
