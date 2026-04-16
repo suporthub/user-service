@@ -6,6 +6,11 @@ const schema = z.object({
   port:              z.coerce.number().default(3002),
   nodeEnv:           z.enum(['development', 'production', 'test']).default('development'),
 
+  // Logging
+  serviceName: z.string().default('user-service'),
+  logLevel:    z.enum(['trace','debug','info','warn','error','fatal']).default('debug'),
+  logToFile:   z.string().transform(v => v !== 'false').default('true'),
+
   // Database
   userDatabaseUrl:     z.string().url(),
   userDatabaseUrlRead: z.string().url().optional(),
@@ -32,6 +37,9 @@ const schema = z.object({
 const parsed = schema.safeParse({
   port:              process.env.PORT,
   nodeEnv:           process.env.NODE_ENV,
+  serviceName:       process.env.SERVICE_NAME,
+  logLevel:          process.env.LOG_LEVEL,
+  logToFile:         process.env.LOG_TO_FILE,
   userDatabaseUrl:     process.env.USER_DATABASE_URL,
   userDatabaseUrlRead: process.env.USER_DATABASE_URL_READ,
   redisClusterNodes: process.env.REDIS_CLUSTER_NODES,
