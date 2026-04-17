@@ -839,19 +839,60 @@ export async function getProfileById(profileId: string) {
 // ── Dashboard APIs ────────────────────────────────────────────────────────────
 
 
+/**
+ * Returns the master profile summary for the /api/live/me dashboard endpoint.
+ *
+ * Portfolio Balance Strategy — "Calculate on Read" (industry standard):
+ *
+ *   We do NOT denormalize a totalBalance column onto UserProfile.
+ *   A stored column would require atomic updates on every deposit, withdrawal,
+ *   and trade P&L event across all sub-accounts — creating write amplification
+ *   and race conditions. Platforms like IBKR, cTrader, and eToro all compute
+ *   the "Total Portfolio Value" on-the-fly at read time via a SUM aggregation.
+ *
+ *   The aggregate query is cheap: walletBalance on LiveUser is indexed and
+ *   only active accounts are scanned. Demo balances are intentionally excluded
+ *   as they are virtual funds.
+ *
+ * Two parallel queries are fired; the combined latency is max(T1, T2) not T1+T2.
+ */
 export async function getDashboardMe(profileId: string) {
-  return prismaRead.userProfile.findUnique({
-    where: { id: profileId },
-    select: {
-      firstName: true,
-      lastName: true,
-      email: true,
-      phone: true,
-      isIB: true,
-      referralCode: true,
-      kycStatus: true,
-    },
-  });
+  const [profile, balanceAgg] = await Promise.all([
+    // ── Q1: Core profile fields ──────────────────────────────────────────────
+    prismaRead.userProfile.findUnique({
+      where: { id: profileId },
+      select: {
+        firstName:    true,
+        lastName:     true,
+        email:        true,
+        phone:        true,
+        isIB:         true,
+        referralCode: true,
+        kycStatus:    true,
+      },
+    }),
+
+    // ── Q2: Total portfolio balance — SUM of all active live account balances ─
+    // Strategy accounts and copy-follower accounts are both LiveUser rows, so
+    // they are all included in this aggregate automatically (no special casing).
+    prismaRead.liveUser.aggregate({
+      where: {
+        userProfileId: profileId,
+        isActive:      true,
+        deletedAt:     null,
+      },
+      _sum: { walletBalance: true },
+    }),
+  ]);
+
+  if (!profile) return null;
+
+  return {
+    ...profile,
+    // Convert Decimal to plain number; defaults to 0 when user has no live accounts
+    totalPortfolioBalance: Number(balanceAgg._sum.walletBalance ?? 0),
+    balanceCurrency:       'USD', // All live accounts are USD-denominated in v3
+  };
 }
 
 export async function getDashboardKyc(profileId: string) {
