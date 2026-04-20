@@ -24,6 +24,7 @@ import {
   upsertKycDetails,
   softDeleteProfile,
 } from '../modules/user/user.service';
+import { getTradingConfig } from '../modules/trading/trading.service';
 
 const router = Router();
 
@@ -333,6 +334,15 @@ router.get('/admin/users', async (req: Request, res: Response) => {
     ...(search !== undefined && { search }),
   });
   res.json({ success: true, ...result });
+});
+
+/**
+ * GET /internal/accounts/:accountNumber/trading-config
+ * Fetch account leverage and group-level symbols config.
+ */
+router.get('/accounts/:accountNumber/trading-config', async (req: Request, res: Response) => {
+  const configStr = await getTradingConfig(req.params.accountNumber!);
+  res.json(configStr);
 });
 
 export default router;
