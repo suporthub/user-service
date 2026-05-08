@@ -814,3 +814,22 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ledger Transactions (Idempotency and Settlement Tracking)
+// Tracks processed financial events from the execution-service to prevent
+// double-charging or double-crediting if Kafka replays a message.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LedgerTransaction {
+  id            String   @id @default(uuid())
+  ticketId      String
+  userId        String   @db.Uuid
+  userType      String   // NEW: "live" or "demo"
+  eventType     String   // e.g., "COMMISSION_DEDUCTION", "PNL_SETTLEMENT"
+  amount        Decimal  @db.Decimal(18, 6)
+  processedAt   DateTime @default(now()) @db.Timestamptz()
+
+  @@unique([ticketId, eventType]) // The Idempotency Key
+  @@map("ledger_transactions")
+}

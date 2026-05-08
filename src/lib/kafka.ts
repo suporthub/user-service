@@ -5,6 +5,7 @@ import { logger } from './logger';
 import { registerLiveUserFromKafka, registerDemoUserFromKafka } from '../modules/user/user.service';
 import { recordAuditLog } from '../modules/audit/audit.service';
 import { handleDepositCompleted } from '../modules/payment/payment.consumer';
+import { handleOrderExecuted, handleOrderClosed } from '../modules/trading/ledger-sync.consumer';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Kafka Consumer
@@ -96,6 +97,16 @@ async function handleMessage({ topic, message }: EachMessagePayload): Promise<vo
     });
     return;
   }
+  
+  if (topic === 'orders.executed') {
+    await handleOrderExecuted(event as any);
+    return;
+  }
+  
+  if (topic === 'orders.closed') {
+    await handleOrderClosed(event as any);
+    return;
+  }
 
   switch (event.type) {
     case 'LIVE_USER_REGISTER':
@@ -154,6 +165,8 @@ export async function startKafkaConsumer(): Promise<void> {
   await subscribeWithRetry('user.register');
   await subscribeWithRetry('user.journal.events');
   await subscribeWithRetry('payment.events');  // Deposit/withdrawal completions from payment-service
+  await subscribeWithRetry('orders.executed'); // Open commission processing
+  await subscribeWithRetry('orders.closed');   // Realized PnL settlement
 
   await consumer.run({
     eachMessage: async (payload) => {
@@ -166,7 +179,7 @@ export async function startKafkaConsumer(): Promise<void> {
     },
   });
 
-  logger.info('Kafka consumer running on topic: user.register');
+  logger.info('Kafka consumer running on topics: user.register, user.journal.events, payment.events, orders.executed, orders.closed');
 }
 
 export async function stopKafkaConsumer(): Promise<void> {
