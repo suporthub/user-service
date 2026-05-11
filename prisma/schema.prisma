@@ -125,6 +125,9 @@ model UserProfile {
   phone              String    @unique
   firstName          String?
   lastName           String?
+  /// ISO 3166-1 alpha-2 country code (e.g. 'IN', 'AE', 'US').
+  /// Belongs to the person (identity), not to any individual trading account.
+  countryCode        String?
   /// True if this user is registered as an Introducing Broker
   isIB               Boolean   @default(false)
   /// Web portal password (NOT the MT5 trading password)
@@ -146,6 +149,7 @@ model UserProfile {
 
   @@index([email])
   @@index([phone])
+  @@index([countryCode])
   @@index([deletedAt])
   @@map("user_profiles")
 }
@@ -170,7 +174,6 @@ model LiveUser {
   /// MT5 trading password hash — separate from the web portal master password
   /// Stored now for future MT5 bridge; not used in web-only trading flows
   tradingPasswordHash String?
-  countryCode         String?
   groupId             String?     @db.Uuid
   groupName           String      @default("Standard")
   leverage            Int         @default(100) @db.SmallInt

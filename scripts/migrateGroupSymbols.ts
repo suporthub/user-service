@@ -1,148 +1,119 @@
-// import { PrismaClient, CommissionType, CommissionValueType, SwapType, MarginCalcMode } from '@prisma/client';
-// import * as fs from 'fs';
-// import * as path from 'path';
+import { PrismaClient, CommissionType, CommissionValueType, SwapType, MarginCalcMode, Prisma } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
 
-// const prisma = new PrismaClient();
+const prisma = new PrismaClient();
 
-// // Your exact Group names in the exact order they appear sequentially in the CSV blocks
-// const GROUP_NAMES_IN_ORDER = ['Standard', 'Royal+', 'Classic', 'ECN', 'VIP', 'Elite'];
+function cleanDecimal(val: string): string {
+    if (!val || val.trim() === '') return '0';
+    const trimmed = val.trim();
+    const parts = trimmed.split('.');
+    if (parts.length > 2) {
+        return parts[0] + '.' + parts.slice(1).join('');
+    }
+    if (trimmed.startsWith('.')) return '0' + trimmed;
+    if (trimmed.startsWith('-.')) return '-0.' + trimmed.substring(2);
+    return trimmed;
+}
 
-// // Map the integers (0, 1, 2) from your CSV to the newly defined industry-standard strings!
-// function mapCommissionType(val: number): CommissionType {
-//   if (val === 0) return CommissionType.round_turn;
-//   if (val === 1) return CommissionType.entry_only;
-//   if (val === 2) return CommissionType.exit_only;
-//   return CommissionType.round_turn;
-// }
+const groupMapping: Record<string, string> = {
+    'standard group.csv': 'Standard',
+    'classic group.csv': 'Classic',
+    'ECN group.csv': 'ECN',
+    'Elite group.csv': 'Elite',
+    'royal group.csv': 'Royal+',
+    'VIP group.csv': 'VIP'
+};
 
-// function mapCommissionValueType(val: number): CommissionValueType {
-//   if (val === 0) return CommissionValueType.per_lot;
-//   if (val === 1) return CommissionValueType.percentage;
-//   return CommissionValueType.per_lot;
-// }
+const commTypeMap: Record<string, CommissionType> = {
+    '0': 'round_turn',
+    '1': 'entry_only',
+    '2': 'exit_only'
+};
 
-// function mapMarginCalcMode(symbol: string): MarginCalcMode {
-//   // Assign exact marginCalcMode strings based on known crypto/index identifiers
-//   if (['BTCUSD', 'USDTUSD'].includes(symbol)) return MarginCalcMode.crypto;
-//   if (['AUS200', 'D30', 'DE30', 'FR40', 'HKG50', 'IND50', 'JP225', 'UK100', 'US100', 'US2000', 'US30', 'US500', 'W20'].includes(symbol)) return MarginCalcMode.cfd_index;
-//   return MarginCalcMode.standard;
-// }
+const commValueTypeMap: Record<string, CommissionValueType> = {
+    '0': 'per_lot',
+    '1': 'percentage'
+};
 
-// async function main() {
-//   const csvPath = path.join(__dirname, '../../docs/groups1.csv');
-//   console.log(`Reading GroupSymbols CSV from: ${csvPath}`);
-  
-//   if (!fs.existsSync(csvPath)) {
-//     throw new Error(`Could not find CSV file at ${csvPath}`);
-//   }
+async function migrateFile(fileName: string, groupId: string) {
+    const csvPath = path.join(__dirname, '../../docs', fileName);
+    if (!fs.existsSync(csvPath)) {
+        console.warn(`⚠️  Skipping ${fileName}: File not found.`);
+        return;
+    }
 
-//   // Pre-fetch all groups from the DB so we have their generated UUIDs!
-//   console.log('Fetching freshly generated Group UUIDs from DB...');
-//   const allGroups = await prisma.group.findMany();
-//   const groupMap = new Map<string, string>(); // name -> UUID
-  
-//   for (const group of allGroups) {
-//     groupMap.set(group.name, group.id);
-//   }
+    const content = fs.readFileSync(csvPath, 'utf-8');
+    const lines = content.split('\n').filter(l => l.trim().length > 0).slice(1);
 
-//   const content = fs.readFileSync(csvPath, 'utf-8');
-//   const lines = content.split('\n').map(line => line.trim());
-//   const dataLines = lines.slice(1);
-  
-//   let currentGroupIndex = 0;
-//   let insideValidBlock = false;
-//   let successCount = 0;
+    console.log(`📊 Migrating ${lines.length} symbols for ${groupMapping[fileName]}...`);
 
-//   for (const line of dataLines) {
-//     const parts = line.split(',');
-//     const symbol = parts[2] ? parts[2].trim() : null;
-    
-//     // If we hit an empty row (like ",,,,,") we know the block is ending
-//     if (!symbol) {
-//       if (insideValidBlock) {
-//         currentGroupIndex++;
-//         insideValidBlock = false; // reset until we hit the next valid symbol
-//       }
-//       continue;
-//     }
-    
-//     // Safety check just in case the file has trailing lines
-//     if (currentGroupIndex >= GROUP_NAMES_IN_ORDER.length) {
-//       break; 
-//     }
+    const dataToInsert = [];
 
-//     insideValidBlock = true;
-    
-//     // What group does this row belong to?
-//     const groupName = GROUP_NAMES_IN_ORDER[currentGroupIndex];
-//     // We magically look up the UUID!
-//     const groupId = groupMap.get(groupName);
-    
-//     if (!groupId) {
-//       console.warn(`WARNING: Group ID not found for ${groupName} in DB! Did you run migrateGroups.ts?`);
-//       continue;
-//     }
+    for (const line of lines) {
+        const parts = line.split(',');
+        const [id, gid, symbol, spreadType, spread, spreadPip, maxSpread, swapBuy, swapSell, swapType, commission, commissionType, commissionValueType, marginPct, marginCalcMode, marginFactor, minLot, maxLot, lotStep, deviation, bonus, isTradable] = parts;
 
-//     // Map CSV Fields
-//     const spreadType = parts[3] ? parts[3] : 'variable';
-//     const spread = parseFloat(parts[4]) || 0;
-//     const spreadPip = parseFloat(parts[5]) || 0.0001;
-//     const maxSpread = parts[6] ? parseFloat(parts[6]) : null;
-    
-//     const swapBuy = parseFloat(parts[7]) || 0;
-//     const swapSell = parseFloat(parts[8]) || 0;
-//     const swapType = parts[9] === "noswap" ? SwapType.noswap : SwapType.points; // Most of your CSV is blank which implies points
-    
-//     const commission = parseFloat(parts[10]) || 0;
-//     const commissionType = mapCommissionType(parseInt(parts[11], 10));
-//     const commissionValueType = mapCommissionValueType(parseInt(parts[12], 10));
-    
-//     const marginPct = parseFloat(parts[13]) || 1;
-//     const marginCalcMode = mapMarginCalcMode(symbol);
-    
-//     const minLot = parseFloat(parts[16]) || 0.01;
-//     const maxLot = parseFloat(parts[17]) || 100;
-//     const lotStep = parseFloat(parts[18]) || 0.01;
-    
-//     const deviation = parseFloat(parts[19]) || 0;
-//     const bonus = parseFloat(parts[20]) || 0;
-//     const isTradable = parseInt(parts[21], 10) === 1;
+        if (!symbol) continue;
 
-//     try {
-//       await prisma.groupSymbol.upsert({
-//         where: {
-//           groupId_symbol: { groupId, symbol }
-//         },
-//         update: {
-//           spreadType, spread, spreadPip, maxSpread,
-//           swapBuy, swapSell, swapType,
-//           commission, commissionType, commissionValueType,
-//           marginPct, marginCalcMode,
-//           minLot, maxLot, lotStep, deviation, bonus, isTradable
-//         },
-//         create: {
-//           groupId, symbol,
-//           spreadType, spread, spreadPip, maxSpread,
-//           swapBuy, swapSell, swapType,
-//           commission, commissionType, commissionValueType,
-//           marginPct, marginCalcMode,
-//           minLot, maxLot, lotStep, deviation, bonus, isTradable
-//         }
-//       });
-//       successCount++;
-//     } catch (e) {
-//       console.error(`Failed to map ${symbol} into ${groupName}:`, e);
-//     }
-//   }
+        dataToInsert.push({
+            groupId,
+            symbol: symbol.trim(),
+            spreadType: spreadType?.trim() || 'fixed',
+            spread: new Prisma.Decimal(cleanDecimal(spread)),
+            spreadPip: new Prisma.Decimal(cleanDecimal(spreadPip)),
+            maxSpread: maxSpread ? new Prisma.Decimal(cleanDecimal(maxSpread)) : null,
+            swapBuy: new Prisma.Decimal(cleanDecimal(swapBuy)),
+            swapSell: new Prisma.Decimal(cleanDecimal(swapSell)),
+            swapType: (swapType?.trim() as SwapType) || 'points',
+            commission: new Prisma.Decimal(cleanDecimal(commission)),
+            commissionType: commTypeMap[commissionType] || 'round_turn',
+            commissionValueType: commValueTypeMap[commissionValueType] || 'per_lot',
+            marginPct: new Prisma.Decimal(cleanDecimal(marginPct)),
+            marginCalcMode: (marginCalcMode?.trim() as MarginCalcMode) || 'standard',
+            marginFactor: new Prisma.Decimal(cleanDecimal(marginFactor)),
+            minLot: new Prisma.Decimal(cleanDecimal(minLot)),
+            maxLot: new Prisma.Decimal(cleanDecimal(maxLot)),
+            lotStep: new Prisma.Decimal(cleanDecimal(lotStep)),
+            deviation: new Prisma.Decimal(cleanDecimal(deviation)),
+            bonus: new Prisma.Decimal(cleanDecimal(bonus)),
+            isTradable: isTradable === '1',
+        });
+    }
 
-//   console.log(`🎉 Group_Symbols Migration complete! Successfully processed ${successCount} entries using Database UUIDs.`);
-// }
+    if (dataToInsert.length > 0) {
+        const CHUNK_SIZE = 100;
+        for (let i = 0; i < dataToInsert.length; i += CHUNK_SIZE) {
+            const chunk = dataToInsert.slice(i, i + CHUNK_SIZE);
+            await prisma.groupSymbol.createMany({
+                data: chunk,
+                skipDuplicates: true,
+            });
+        }
+    }
+}
 
-// main()
-//   .catch(e => {
-//     console.error('Migration failed:', e);
-//     process.exit(1);
-//   })
-//   .finally(async () => {
-//     await prisma.$disconnect();
-//   });
+async function main() {
+    console.log('🗑️  Clearing all existing GroupSymbol entries...');
+    await prisma.groupSymbol.deleteMany();
+
+    const groups = await prisma.group.findMany();
+    const groupNameToId = new Map(groups.map(g => [g.name, g.id]));
+
+    for (const [fileName, groupName] of Object.entries(groupMapping)) {
+        const groupId = groupNameToId.get(groupName);
+        if (!groupId) continue;
+        await migrateFile(fileName, groupId);
+    }
+
+    console.log('🎉 Group Symbols migration completed.');
+}
+
+main()
+    .catch(e => {
+        console.error('Migration failed:', e);
+        process.exit(1);
+    })
+    .finally(async () => {
+        await prisma.$disconnect();
+    });

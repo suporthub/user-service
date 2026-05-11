@@ -106,6 +106,8 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
 
   let profileId: string;
 
+  // ── Create or reuse UserProfile ──────────────────────────────────────────────
+  // NOTE: country goes on the profile (the person's identity), not on the trading account.
   if (existingProfile) {
     // Profile exists — check phone consistency
     if (existingProfile.phone !== e.phoneNumber) {
@@ -137,7 +139,7 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
 
     const uniqueReferralCode = await generateUniqueReferralCode();
 
-    // Create the profile
+    // Create the profile — country is stored here (the person's identity), NOT on the trading account
     const profile = await prismaWrite.userProfile.create({
       data: {
         email: e.email,
@@ -145,6 +147,7 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
         masterPasswordHash: e.masterPasswordHash,
         isVerified: false,
         kycStatus: 'pending',
+        countryCode: e.country ?? null,
         referralCode: uniqueReferralCode,
         ...(referredById && { referredBy: referredById }),
       },
@@ -159,7 +162,6 @@ export async function registerLiveUserFromKafka(event: unknown): Promise<void> {
       accountNumber: e.accountNumber,
       accountName: 'Main Account',
       tradingPasswordHash: e.tradingPasswordHash,
-      countryCode: e.country,
       groupName: e.groupName,
       currency: e.currency,
       leverage: e.leverage,
@@ -402,7 +404,7 @@ export async function createTradingAccount(
   tradingPasswordHash: string,
   options: {
     groupName: string; currency: string; leverage: number;
-    countryCode?: string; accountName?: string; isDemo?: boolean; initialBalance?: number
+    accountName?: string; isDemo?: boolean; initialBalance?: number
   },
 ): Promise<void> {
   if (options.isDemo) {
@@ -429,7 +431,6 @@ export async function createTradingAccount(
         groupName: options.groupName,
         currency: options.currency,
         leverage: options.leverage,
-        ...(options.countryCode !== undefined && { countryCode: options.countryCode }),
         isSelfTrading: true,
         isActive: true,
       },
@@ -701,15 +702,16 @@ export interface PagedAdminUserResult {
 /**
  * GBAC-aware paged listing of live users for the admin panel.
  * - allCountries=true  → no country filter (super_admin view)
- * - allCountries=false → WHERE countryCode IN (countryCodes[])
+ * - allCountries=false → WHERE userProfile.countryCode IN (countryCodes[])
  */
 export async function listUsersForAdmin(options: AdminUserListOptions): Promise<PagedAdminUserResult> {
   const skip = (options.page - 1) * options.limit;
 
   const where: Prisma.LiveUserWhereInput = {};
 
+  // Country filter now lives on UserProfile (the person's identity), not on LiveUser
   if (!options.allCountries && options.countryCodes.length > 0) {
-    where.countryCode = { in: options.countryCodes };
+    where.userProfile = { countryCode: { in: options.countryCodes } };
   }
   if (options.isActive !== undefined) where.isActive = options.isActive;
   if (options.search) {
@@ -726,11 +728,11 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
       take: options.limit,
       orderBy: { createdAt: 'desc' },
       select: {
-        id: true, accountNumber: true, countryCode: true,
+        id: true, accountNumber: true,
         groupName: true, currency: true, leverage: true,
         isActive: true, createdAt: true, lastLoginAt: true,
         userProfile: {
-          select: { email: true, phone: true, isVerified: true, kycStatus: true },
+          select: { email: true, phone: true, isVerified: true, kycStatus: true, countryCode: true },
         },
       },
     }),
@@ -746,7 +748,7 @@ export async function listUsersForAdmin(options: AdminUserListOptions): Promise<
       accountNumber: r.accountNumber,
       email: r.userProfile.email,
       phone: r.userProfile.phone,
-      countryCode: r.countryCode,
+      countryCode: r.userProfile.countryCode,
       groupName: r.groupName,
       currency: r.currency,
       leverage: r.leverage,
@@ -869,6 +871,7 @@ export async function getDashboardMe(profileId: string) {
         isIB:         true,
         referralCode: true,
         kycStatus:    true,
+        countryCode:  true,
       },
     }),
 
@@ -889,6 +892,8 @@ export async function getDashboardMe(profileId: string) {
 
   return {
     ...profile,
+    countryCode:           profile.countryCode,
+    country:               profile.countryCode, // mapped for frontend convenience
     // Convert Decimal to plain number; defaults to 0 when user has no live accounts
     totalPortfolioBalance: Number(balanceAgg._sum.walletBalance ?? 0),
     balanceCurrency:       'USD', // All live accounts are USD-denominated in v3

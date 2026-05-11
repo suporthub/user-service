@@ -200,11 +200,11 @@ router.get('/accounts/:profileId', async (req: Request, res: Response) => {
 router.post('/accounts', async (req: Request, res: Response) => {
   const {
     profileId, accountNumber, tradingPasswordHash,
-    groupName, currency, leverage, countryCode,
+    groupName, currency, leverage,
     accountName, isDemo, initialBalance
   } = req.body as {
     profileId: string; accountNumber: string; tradingPasswordHash: string;
-    groupName: string; currency: string; leverage: number; countryCode?: string;
+    groupName: string; currency: string; leverage: number;
     accountName?: string; isDemo?: boolean; initialBalance?: number;
   };
 
@@ -218,7 +218,6 @@ router.post('/accounts', async (req: Request, res: Response) => {
     ...(accountName !== undefined && { accountName }),
     ...(isDemo !== undefined && { isDemo }),
     ...(initialBalance !== undefined && { initialBalance }),
-    ...(countryCode !== undefined && { countryCode }),
   });
 
   res.json({ success: true });
