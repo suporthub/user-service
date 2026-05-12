@@ -25,6 +25,8 @@ import {
   softDeleteProfile,
 } from '../modules/user/user.service';
 import { getTradingConfig } from '../modules/trading/trading.service';
+import { executeTransfer } from '../modules/payment/transfer.controller';
+import { requestWithdrawal, processWithdrawal } from '../modules/payment/withdrawal.controller';
 
 const router = Router();
 
@@ -343,5 +345,13 @@ router.get('/accounts/:accountNumber/trading-config', async (req: Request, res: 
   const configStr = await getTradingConfig(req.params.accountNumber!);
   res.json(configStr);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transfers & Withdrawals
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post('/transfers', executeTransfer);
+router.post('/withdrawals/request', requestWithdrawal);
+router.post('/withdrawals/process', processWithdrawal);
 
 export default router;

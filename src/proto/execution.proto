@@ -1,0 +1,230 @@
+// -----------------------------------------------------------------------------
+// LiveFXHub V3 -- Execution Service gRPC Contract
+//
+// Transport layer between order-gateway (Node.js) and execution-service (Go).
+// Designed for sub-millisecond hot-path: minimal field count, no nested types.
+//
+// proto3 semantics: all fields are optional by default (zero value = absent).
+// -----------------------------------------------------------------------------
+
+syntax = "proto3";
+
+package livefxhub.execution.v1;
+
+// Go output path (used by protoc-gen-go)
+option go_package = "github.com/livefxhub/execution-service/gen/executionpb";
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+// OrderSide distinguishes whether the client is buying (going long)
+// or selling (going short) the base currency.
+enum OrderSide {
+  ORDER_SIDE_UNSPECIFIED = 0;
+  ORDER_SIDE_BUY         = 1; // Client buys base currency -- fill at ASK price
+  ORDER_SIDE_SELL        = 2; // Client sells base currency -- fill at BID price
+}
+
+enum OrderType {
+  BUY        = 0;
+  SELL       = 1;
+  BUY_LIMIT  = 2;
+  SELL_LIMIT = 3;
+  BUY_STOP   = 4;
+  SELL_STOP  = 5;
+}
+
+enum ExecutionMode {
+  MARKET = 0;
+  FOK    = 1;
+}
+
+enum TimeInForce {
+  GTC = 0;
+  DAY = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Messages
+// -----------------------------------------------------------------------------
+
+// PlaceOrderRequest -- sent by order-gateway after JWT auth + Zod validation.
+//
+// Security note: user_id and group_name are extracted from the verified JWT
+// inside order-gateway and MUST NOT be accepted from the client payload.
+// They are injected here by the trusted gateway layer only.
+message PlaceOrderRequest {
+  // -- Identity (injected by gateway from JWT -- never from client payload) --
+  string user_id    = 1; // UUID of the authenticated trading account
+  string group_name = 2; // e.g. "Standard", "VIP", "Cent" -- from JWT claim
+
+  // -- Instrument --
+  string symbol = 3; // e.g. "EURUSD", "BTCUSD", "XAUUSD"
+
+  // -- Order parameters --
+  OrderSide order_side      = 4; // BUY or SELL
+  double    volume          = 5; // Lot size e.g. 0.01, 1.0, 5.0
+  double    requested_price = 6; // Price the client saw at click time
+  int32     deviation       = 7; // Max acceptable slippage in POINTS (not pips)
+
+  // -- Phase 3A additions --
+  OrderType     order_type     = 9;
+  ExecutionMode execution_mode = 10;
+  TimeInForce   tif            = 11;
+  double        stop_loss      = 12;
+  double        take_profit    = 13;
+  string        ticket_id      = 14;
+
+  // -- Audit / Risk --
+  string client_ip = 8; // Originating IP -- for risk and audit logging
+}
+
+// PlaceOrderResponse -- returned by execution-service after the trade is
+// executed in RAM. Sent to client BEFORE the Kafka publish for lowest latency.
+message PlaceOrderResponse {
+  bool   success            = 1; // true = trade executed; false = rejected
+  string status             = 2; // "EXECUTED" | "RESTING" | "REJECTED" | "ERROR" | "CANCELLED"
+  string message            = 3; // Human-readable detail
+
+  // -- Populated only on success (success = true) --
+  string ticket_id          = 4; // The trade's permanent identifier
+  double execution_price    = 5; // Actual fill price (may differ from requested)
+  double margin_used        = 6; // Margin locked for this position in account currency
+  double commission_charged = 7; // Commission deducted from balance
+  string open_time          = 8; // Formatted ISO-8601 string
+  double swap               = 9; // Swap calculated at midnight rollover
+}
+
+// ForceLiquidateRequest -- sent by risk-service when a user's margin level
+// breaches the stop-out threshold.
+message ForceLiquidateRequest {
+  string ticket_id = 1; // UUID of the specific position to liquidate
+  string user_id   = 2; // UUID of the account -- for audit logging
+  string reason    = 3; // Human-readable reason e.g. "STOP_OUT:45.2%"
+}
+
+// ForceLiquidateResponse -- result of a forced liquidation attempt.
+message ForceLiquidateResponse {
+  bool   success = 1; // true = position closed; false = already closed or error
+  string message = 2; // Human-readable detail for audit trail
+}
+
+// -- Portfolio & Initial Paint --
+
+message GetPortfolioRequest {
+  string user_id = 1; // Extracted from JWT by gateway
+}
+
+message GetPortfolioResponse {
+  double balance     = 1;
+  double used_margin = 2;
+  double free_margin = 3;
+  double leverage    = 4;
+  string currency    = 5;
+}
+
+message GetActiveOrdersRequest {
+  string user_id = 1; // Extracted from JWT by gateway
+}
+
+// OrderInfo -- single position / pending order record returned by GetActiveOrders.
+// Also used as the data payload in the universal ORDER_STATE_CHANGE WebSocket event.
+message OrderInfo {
+  string ticket_id    = 1;
+  string symbol       = 2;
+  string order_side   = 3;  // "BUY" or "SELL"
+  double volume       = 4;
+  double open_price   = 5;  // execution price for OPEN; same as target_price for PENDING
+  double sl           = 6;
+  double tp           = 7;
+  double commission   = 8;
+  double swap         = 9;
+  string open_time    = 10; // ISO-8601
+  // -- Pending order enrichment --
+  string order_type   = 11; // e.g. "BUY_LIMIT", "SELL_STOP", "BUY", "SELL"
+  double target_price = 12; // trigger price for pending orders (0 for market orders)
+  string close_time   = 13; // ISO-8601 close timestamp; empty if still open/pending
+}
+
+message GetActiveOrdersResponse {
+  repeated OrderInfo open_positions = 1;
+  repeated OrderInfo pending_orders = 2;
+}
+
+// -- Lifecycle request messages --
+
+// CancelOrderRequest -- cancels a StateResting (pending) order.
+// Rejected if the order is in StateOpen (must use market close instead).
+message CancelOrderRequest {
+  string ticket_id = 1; // The pending order's ticket ID
+  string user_id   = 2; // Extracted from JWT by gateway -- never from client
+}
+
+// CloseOrderRequest -- user-initiated market close of an open position.
+// Only valid for StateOpen positions; pending orders must use CancelOrder.
+// The engine generates a CLS-prefixed lifecycle ID for FIX Tag 11.
+message CloseOrderRequest {
+  string ticket_id = 1; // The open position's ticket ID
+  string user_id   = 2; // Extracted from JWT by gateway -- never from client
+}
+
+// ModifyOrderRequest -- updates SL and/or TP on a pending or open position.
+// Pass new_sl = 0 to remove the stop-loss watcher.
+// Pass new_tp = 0 to remove the take-profit watcher.
+message ModifyOrderRequest {
+  string ticket_id = 1; // Target position's ticket ID
+  string user_id   = 2; // Extracted from JWT by gateway -- never from client
+  double new_sl    = 3; // New stop-loss price (0 = remove)
+  double new_tp    = 4; // New take-profit price (0 = remove)
+}
+
+// CloseAllOrdersRequest -- closes every StateOpen position for a user.
+// user_id is always injected from the verified JWT by the gateway.
+message CloseAllOrdersRequest {
+  string user_id = 1; // Extracted from JWT by gateway -- never from client
+}
+
+// CloseAllOrdersResponse -- result of a bulk close operation.
+message CloseAllOrdersResponse {
+  bool            success        = 1;
+  int32           closed_count   = 2;
+  repeated string failed_tickets = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Service Definition
+// -----------------------------------------------------------------------------
+
+// ExecutionService -- the B-Book matching engine.
+// All methods are synchronous (unary) -- streaming is handled at the WebSocket
+// layer in order-gateway, not here.
+service ExecutionService {
+  // PlaceOrder executes a market order instantly in RAM.
+  // Critical path SLA: < 1ms p99 for warm users.
+  // JIT load path SLA: < 5ms p99 for first-time users (includes DB read).
+  rpc PlaceOrder(PlaceOrderRequest) returns (PlaceOrderResponse);
+
+  // ForceLiquidate is called ONLY by the risk-service.
+  rpc ForceLiquidate(ForceLiquidateRequest) returns (ForceLiquidateResponse);
+
+  // GetPortfolio returns the real-time balance and margin snapshot for a user.
+  rpc GetPortfolio(GetPortfolioRequest) returns (GetPortfolioResponse);
+
+  // GetActiveOrders returns the user's open and pending orders from RAM.
+  rpc GetActiveOrders(GetActiveOrdersRequest) returns (GetActiveOrdersResponse);
+
+  // CancelOrder cancels a StateResting (pending) order.
+  // Returns an error if the order is already open -- must use market close.
+  rpc CancelOrder(CancelOrderRequest) returns (PlaceOrderResponse);
+
+  // ModifyOrder updates the SL/TP on a pending or open position.
+  // Pass new_sl = 0 or new_tp = 0 to remove the respective watcher.
+  rpc ModifyOrder(ModifyOrderRequest) returns (PlaceOrderResponse);
+
+  // CloseOrder performs a user-initiated market close of a StateOpen position.
+  rpc CloseOrder(CloseOrderRequest) returns (PlaceOrderResponse);
+
+  // CloseAllOrders closes every StateOpen position for the user.
+  rpc CloseAllOrders(CloseAllOrdersRequest) returns (CloseAllOrdersResponse);
+}

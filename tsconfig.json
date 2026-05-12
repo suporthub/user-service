@@ -19,7 +19,12 @@
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "noImplicitReturns": true,
-        "exactOptionalPropertyTypes": true
+        "exactOptionalPropertyTypes": true,
+        "baseUrl": ".",
+        "paths": {
+            "@prisma/client": ["./node_modules/.prisma/client"],
+            "@prisma/client/*": ["./node_modules/.prisma/client/*"]
+        }
     },
     "include": [
         "src/**/*"

@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -198,6 +199,7 @@ model LiveUser {
   strategyProvider   StrategyProvider?
   copyFollowings     CopyFollower[]
   transactions       UserTransaction[]
+  paymentMethods     UserPaymentMethod[]
   bonusAllocations   UserBonusAllocation[]
 
   @@index([userProfileId])
@@ -691,6 +693,10 @@ model UserTransaction {
   // ── Cross-service traceability ────────────────────────────────────────────
   /// GatewayPayment.id from payment_db — links this ledger entry to the gateway record
   linkedPaymentId String?       @db.Uuid
+  /// Links two legs of an internal transfer
+  linkedTxnId     String?       @db.Uuid
+  /// Links a withdrawal transaction to a specific payment method destination
+  paymentMethodId String?       @db.Uuid
   /// Raw gateway transaction ID (Tylt orderId, Pay2Pay txnId, Stripe pi_xxx)
   gatewayTxnId    String?       @db.VarChar(128)
   gateway         String?       @db.VarChar(50)
@@ -835,4 +841,27 @@ model LedgerTransaction {
 
   @@unique([ticketId, eventType]) // The Idempotency Key
   @@map("ledger_transactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Payment Methods — withdrawal destinations (banks, crypto addresses)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model UserPaymentMethod {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       LiveUser @relation(fields: [userId], references: [id])
+  /// e.g. 'bank', 'crypto', 'upi'
+  type       String   @db.VarChar(50)
+  /// e.g. 'Chase Bank', 'TRC20 Wallet'
+  label      String   @db.VarChar(100)
+  /// Store account numbers, routing numbers, wallet addresses
+  details    Json
+  isVerified Boolean  @default(false)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now()) @db.Timestamptz()
+  updatedAt  DateTime @updatedAt @db.Timestamptz()
+
+  @@index([userId, isActive])
+  @@map("user_payment_methods")
 }
