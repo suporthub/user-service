@@ -14,7 +14,6 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
-.github
 logs/
 *.log*
 *.tar

@@ -15,6 +15,7 @@ jobs:
           host: ${{ secrets.SERVER_IP }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 60m
           script: |
             set -e
             cd /v3/user-service
@@ -26,8 +27,8 @@ jobs:
             # Get short SHA for precise tagging
             export SHA=$(git rev-parse --short HEAD)
 
-            # Build the fresh local image natively (no-cache to ensure updates)
-            docker build --no-cache -t user-service:${SHA} .
+            # Build the fresh local image natively (using cache to speed up slow networks)
+            docker build -t user-service:${SHA} .
             
             # Since you're using k3s, save and import it directly into the cluster runtime
             docker save user-service:${SHA} | sudo k3s ctr images import -
