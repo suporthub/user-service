@@ -11,23 +11,32 @@ function generateTxnRef(): string {
 }
 
 export const executeTransfer = async (req: Request, res: Response): Promise<void> => {
-  const { senderAccountId, receiverAccountId, amount } = req.body as {
-    senderAccountId: string;
-    receiverAccountId: string;
-    amount: number;
+  // Accept both naming conventions for backwards-compatibility
+  const body = req.body as {
+    fromAccountId?:   string;
+    toAccountId?:     string;
+    senderAccountId?:   string;   // legacy — kept for direct calls
+    receiverAccountId?: string;   // legacy — kept for direct calls
+    amount:   number;
+    currency?: string;
+    description?: string;
   };
 
-  if (!senderAccountId || !receiverAccountId || typeof amount !== 'number' || amount <= 0) {
+  const fromAccountId = body.fromAccountId ?? body.senderAccountId;
+  const toAccountId   = body.toAccountId   ?? body.receiverAccountId;
+
+  if (!fromAccountId || !toAccountId || typeof body.amount !== 'number' || body.amount <= 0) {
     res.status(400).json({ success: false, message: 'Invalid input parameters' });
     return;
   }
 
-  if (senderAccountId === receiverAccountId) {
+  if (fromAccountId === toAccountId) {
     res.status(400).json({ success: false, message: 'Sender and receiver cannot be the same' });
     return;
   }
 
-  // Execute DB transaction
+  const amount = body.amount;
+
   const { debitTxn, creditTxn } = await prismaWrite.$transaction(async (tx) => {
     // Lock both accounts by reading them (in a real production system, SELECT FOR UPDATE is better)
     // Prisma doesn't support SELECT FOR UPDATE directly without $queryRaw, but since we are relying on Prisma,
@@ -36,12 +45,12 @@ export const executeTransfer = async (req: Request, res: Response): Promise<void
     // For safety, we can use raw query for FOR UPDATE if we wanted, but Prisma's transaction with serializable isolation might work. 
     // We will stick to the standard findUnique for now.
     const sender = await tx.liveUser.findUnique({
-      where: { id: senderAccountId },
+      where: { id: fromAccountId },
       select: { id: true, walletBalance: true, userProfileId: true, currency: true },
     });
 
     const receiver = await tx.liveUser.findUnique({
-      where: { id: receiverAccountId },
+      where: { id: toAccountId },
       select: { id: true, walletBalance: true, userProfileId: true, currency: true },
     });
 
@@ -124,15 +133,15 @@ export const executeTransfer = async (req: Request, res: Response): Promise<void
   // Architectural Guard 2: The Dual-Write Problem (DB vs. Kafka)
   
   await publishEvent('wallet.transactions', debitTxn.id, {
-    user_id: senderAccountId,
-    transaction_type: 'WITHDRAWAL', // execution-service understands DEPOSIT/WITHDRAWAL/CREDIT
+    user_id: fromAccountId,
+    transaction_type: 'WITHDRAWAL',
     amount: amount,
   }).catch(err => {
     logger.error({ err, txnId: debitTxn.id }, 'Failed to publish sender wallet decrement to Kafka');
   });
 
   await publishEvent('wallet.transactions', creditTxn.id, {
-    user_id: receiverAccountId,
+    user_id: toAccountId,
     transaction_type: 'DEPOSIT',
     amount: amount,
   }).catch(err => {
