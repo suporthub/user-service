@@ -30,6 +30,7 @@ const schema = z.object({
 
   // Internal comm
   internalSecret:  z.string().min(16),
+  jwtSecret:       z.string().default('lfx_v3_dev_jwt_secret_change_in_production_2025'),
   ibServiceUrl:    z.string().url().default('http://ib-service:3005'),
   allowedOrigins:  z.string().default('http://localhost:3000').transform((v) => v.split(',')),
 });
@@ -47,6 +48,7 @@ const parsed = schema.safeParse({
   kafkaClientId:   process.env.KAFKA_CLIENT_ID,
   kafkaGroupId:    process.env.KAFKA_GROUP_ID,
   internalSecret:  process.env.INTERNAL_SERVICE_SECRET,
+  jwtSecret:       process.env.JWT_SECRET,
   ibServiceUrl:    process.env.IB_SERVICE_URL,
   allowedOrigins:  process.env.ALLOWED_ORIGINS,
 });

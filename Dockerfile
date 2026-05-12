@@ -18,6 +18,7 @@ RUN npx prisma generate
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
+RUN mkdir -p dist/proto && cp src/proto/*.proto dist/proto/
 
 # ── Runtime Stage ──
 FROM node:20-slim AS runner
