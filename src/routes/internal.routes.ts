@@ -26,7 +26,7 @@ import {
 } from '../modules/user/user.service';
 import { getTradingConfig } from '../modules/trading/trading.service';
 import { executeTransfer } from '../modules/payment/transfer.controller';
-import { requestWithdrawal, processWithdrawal } from '../modules/payment/withdrawal.controller';
+import { requestWithdrawal, processWithdrawal, getPendingWithdrawals } from '../modules/payment/withdrawal.controller';
 
 const router = Router();
 
@@ -353,5 +353,6 @@ router.get('/accounts/:accountNumber/trading-config', async (req: Request, res: 
 router.post('/transfers', executeTransfer);
 router.post('/withdrawals/request', requestWithdrawal);
 router.post('/withdrawals/process', processWithdrawal);
+router.get('/withdrawals/pending',  getPendingWithdrawals);
 
 export default router;

@@ -696,7 +696,8 @@ model UserTransaction {
   /// Links two legs of an internal transfer
   linkedTxnId     String?       @db.Uuid
   /// Links a withdrawal transaction to a specific payment method destination
-  paymentMethodId String?       @db.Uuid
+  paymentMethodId String?            @db.Uuid
+  paymentMethod   UserPaymentMethod? @relation(fields: [paymentMethodId], references: [id])
   /// Raw gateway transaction ID (Tylt orderId, Pay2Pay txnId, Stripe pi_xxx)
   gatewayTxnId    String?       @db.VarChar(128)
   gateway         String?       @db.VarChar(50)
@@ -862,6 +863,24 @@ model UserPaymentMethod {
   createdAt  DateTime @default(now()) @db.Timestamptz()
   updatedAt  DateTime @updatedAt @db.Timestamptz()
 
+  transactions UserTransaction[]
+
   @@index([userId, isActive])
   @@map("user_payment_methods")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Favorite Symbols — watchlists / favorites
+// ─────────────────────────────────────────────────────────────────────────────
+
+model UserFavoriteSymbol {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  /// 'live' | 'demo'
+  userType  String   @db.VarChar(30)
+  symbol    String   @db.VarChar(20)
+  createdAt DateTime @default(now()) @db.Timestamptz()
+
+  @@unique([userId, userType, symbol])
+  @@map("user_favorite_symbols")
 }

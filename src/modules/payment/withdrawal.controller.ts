@@ -191,3 +191,49 @@ export const processWithdrawal = async (req: Request, res: Response): Promise<vo
 
   res.json({ success: true, data: resultTxn });
 };
+
+/**
+ * getPendingWithdrawals — Finance team's FIFO withdrawal queue
+ *
+ * Returns all pending withdrawal requests ordered by createdAt ASC so the
+ * oldest (most urgent) requests surface first. Supports cursor-based paging
+ * via `page` + `limit` query params.
+ */
+export const getPendingWithdrawals = async (req: Request, res: Response): Promise<void> => {
+  const page  = Math.max(1, Number(req.query['page'])  || 1);
+  const limit = Math.min(100, Math.max(1, Number(req.query['limit']) || 20));
+  const skip  = (page - 1) * limit;
+
+  const [transactions, total] = await Promise.all([
+    prismaWrite.userTransaction.findMany({
+      where:   { txnType: 'withdrawal', status: 'pending' },
+      orderBy: { createdAt: 'asc' }, // FIFO — oldest first
+      skip,
+      take: limit,
+      include: {
+        // Full payment destination details — finance team needs bank/crypto info
+        paymentMethod: true,
+        // Account context — accountNumber visible in the admin queue
+        user: {
+          select: {
+            accountNumber: true,
+            currency:      true,
+            accountName:   true,
+          },
+        },
+      },
+    }),
+    prismaWrite.userTransaction.count({
+      where: { txnType: 'withdrawal', status: 'pending' },
+    }),
+  ]);
+
+  res.json({
+    success:    true,
+    data:       transactions,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+  });
+};
+
