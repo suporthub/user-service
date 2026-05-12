@@ -28,6 +28,7 @@ import { getTradingConfig } from '../modules/trading/trading.service';
 import { executeTransfer } from '../modules/payment/transfer.controller';
 import { requestWithdrawal, processWithdrawal, getPendingWithdrawals } from '../modules/payment/withdrawal.controller';
 import { listPaymentMethods, createPaymentMethod } from '../modules/payment/payment-method.controller';
+import { getFinancialSummary } from '../modules/payment/financial-summary.controller';
 
 const router = Router();
 
@@ -371,5 +372,18 @@ router.get('/payment-methods/:userId', listPaymentMethods);
  * Create a new payment method with atomic isDefault exclusivity.
  */
 router.post('/payment-methods', createPaymentMethod);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Financial Summary
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /internal/financial/summary?userId=<LiveUser.id>&timeframe=today|week|month|all
+ *
+ * Proxied by auth-service → frontend as GET /api/financial/summary.
+ * Returns { deposit, balance } for the MT5-style History Summary block.
+ * Protected by the x-service-secret router middleware above.
+ */
+router.get('/financial/summary', getFinancialSummary);
 
 export default router;
