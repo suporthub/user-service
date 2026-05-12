@@ -860,6 +860,7 @@ model UserPaymentMethod {
   details    Json
   isVerified Boolean  @default(false)
   isActive   Boolean  @default(true)
+  isDefault  Boolean  @default(false)
   createdAt  DateTime @default(now()) @db.Timestamptz()
   updatedAt  DateTime @updatedAt @db.Timestamptz()
 

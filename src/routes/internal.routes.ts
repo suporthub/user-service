@@ -27,6 +27,7 @@ import {
 import { getTradingConfig } from '../modules/trading/trading.service';
 import { executeTransfer } from '../modules/payment/transfer.controller';
 import { requestWithdrawal, processWithdrawal, getPendingWithdrawals } from '../modules/payment/withdrawal.controller';
+import { listPaymentMethods, createPaymentMethod } from '../modules/payment/payment-method.controller';
 
 const router = Router();
 
@@ -354,5 +355,21 @@ router.post('/transfers', executeTransfer);
 router.post('/withdrawals/request', requestWithdrawal);
 router.post('/withdrawals/process', processWithdrawal);
 router.get('/withdrawals/pending',  getPendingWithdrawals);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Payment Methods
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /internal/payment-methods/:userId
+ * List active payment methods for a profile (auth-service → user-service).
+ */
+router.get('/payment-methods/:userId', listPaymentMethods);
+
+/**
+ * POST /internal/payment-methods
+ * Create a new payment method with atomic isDefault exclusivity.
+ */
+router.post('/payment-methods', createPaymentMethod);
 
 export default router;
