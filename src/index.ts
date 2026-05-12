@@ -11,6 +11,7 @@ import { startKafkaConsumer, stopKafkaConsumer } from './lib/kafka';
 import { AppError } from './utils/errors';
 import internalRoutes from './routes/internal.routes';
 import countriesRoutes from './routes/countries.routes';
+import favoritesRoutes from './routes/favorites.routes';
 
 const app = express();
 
@@ -28,6 +29,9 @@ app.get('/health', (_req, res) => {
 
 // Public reference endpoints (no auth — cached at CDN level)
 app.use('/api/countries', countriesRoutes);
+
+// User-facing APIs
+app.use('/api/favorites', favoritesRoutes);
 
 // Internal endpoints only — no public API surface (user reads go through order-gateway)
 app.use('/internal', internalRoutes);

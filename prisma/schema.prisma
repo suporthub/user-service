@@ -868,17 +868,16 @@ model UserPaymentMethod {
   @@index([userId, isActive])
   @@map("user_payment_methods")
 }
-
 // ─────────────────────────────────────────────────────────────────────────────
-// User Favorite Symbols — watchlists / favorites
+// User Favorite Symbols
+// Stores favorite trading symbols per trading account (live or demo)
 // ─────────────────────────────────────────────────────────────────────────────
 
 model UserFavoriteSymbol {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @db.Uuid
-  /// 'live' | 'demo'
-  userType  String   @db.VarChar(30)
-  symbol    String   @db.VarChar(20)
+  userType  String   // "live" or "demo"
+  symbol    String
   createdAt DateTime @default(now()) @db.Timestamptz()
 
   @@unique([userId, userType, symbol])
