@@ -15,7 +15,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 .github
-Dockerfile
 logs/
 *.log*
 *.tar
