@@ -3,10 +3,14 @@
  *
  * Handles creation and retrieval of user payout destinations (banks, crypto).
  *
+ * KEY ARCHITECTURE: Payment methods are linked to the MASTER PROFILE (UserProfile),
+ * NOT to an individual trading account (LiveUser). This allows a user to reuse
+ * the same bank/wallet across all their trading accounts.
+ *
  * Key business rule — isDefault exclusivity:
  *   Only ONE payment method per user can be the default at any time.
  *   When a new method is created with isDefault: true, all other methods for
- *   that user are atomically set to isDefault: false in the same transaction.
+ *   that profile are atomically set to isDefault: false in the same transaction.
  */
 
 import { Request, Response } from 'express';

@@ -145,8 +145,9 @@ model UserProfile {
   createdAt          DateTime  @default(now()) @db.Timestamptz()
   updatedAt          DateTime  @updatedAt @db.Timestamptz()
 
-  liveAccounts LiveUser[]
-  demoAccounts DemoUser[]
+  liveAccounts   LiveUser[]
+  demoAccounts   DemoUser[]
+  paymentMethods UserPaymentMethod[]
 
   @@index([email])
   @@index([phone])
@@ -199,7 +200,6 @@ model LiveUser {
   strategyProvider   StrategyProvider?
   copyFollowings     CopyFollower[]
   transactions       UserTransaction[]
-  paymentMethods     UserPaymentMethod[]
   bonusAllocations   UserBonusAllocation[]
 
   @@index([userProfileId])
@@ -849,20 +849,21 @@ model LedgerTransaction {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model UserPaymentMethod {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @db.Uuid
-  user       LiveUser @relation(fields: [userId], references: [id])
-  /// e.g. 'bank', 'crypto', 'upi'
-  type       String   @db.VarChar(50)
+  id         String      @id @default(uuid()) @db.Uuid
+  /// Master Profile ID (UserProfile.id) — shared across all trading accounts
+  userId     String      @db.Uuid
+  user       UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// e.g. 'BANK', 'CRYPTO', 'E_WALLET'
+  type       String      @db.VarChar(50)
   /// e.g. 'Chase Bank', 'TRC20 Wallet'
-  label      String   @db.VarChar(100)
+  label      String      @db.VarChar(100)
   /// Store account numbers, routing numbers, wallet addresses
   details    Json
-  isVerified Boolean  @default(false)
-  isActive   Boolean  @default(true)
-  isDefault  Boolean  @default(false)
-  createdAt  DateTime @default(now()) @db.Timestamptz()
-  updatedAt  DateTime @updatedAt @db.Timestamptz()
+  isVerified Boolean     @default(false)
+  isActive   Boolean     @default(true)
+  isDefault  Boolean     @default(false)
+  createdAt  DateTime    @default(now()) @db.Timestamptz()
+  updatedAt  DateTime    @updatedAt @db.Timestamptz()
 
   transactions UserTransaction[]
 
