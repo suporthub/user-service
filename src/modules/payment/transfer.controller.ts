@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AppError } from '../../utils/errors';
 import { prismaWrite } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { publishEvent } from '../../lib/kafka';
@@ -20,7 +21,10 @@ export const executeTransfer = async (req: Request, res: Response): Promise<void
     amount:   number;
     currency?: string;
     description?: string;
+    profileId?: string; // injected by auth-service
   };
+
+  const profileId = body.profileId;
 
   const fromAccountId = body.fromAccountId ?? body.senderAccountId;
   const toAccountId   = body.toAccountId   ?? body.receiverAccountId;
@@ -56,6 +60,10 @@ export const executeTransfer = async (req: Request, res: Response): Promise<void
 
     if (!sender) throw new Error('Sender account not found');
     if (!receiver) throw new Error('Receiver account not found');
+
+    if (profileId && sender.userProfileId !== profileId) {
+      throw new AppError('ACCOUNT_MISMATCH', 403, 'You can only transfer from your own trading account');
+    }
 
     if (sender.currency !== receiver.currency) {
       throw new Error('Cross-currency transfers are not supported yet');
