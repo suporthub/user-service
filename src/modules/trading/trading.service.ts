@@ -98,12 +98,21 @@ export async function buildGroupConfigCache(groupName: string): Promise<CachedGr
  * Fetches the trading config. Separates the account-level variables
  * (like leverage) from the group-level variables (like symbols).
  */
-export async function getTradingConfig(accountNumber: string): Promise<TradingConfigResponse> {
+export async function getTradingConfig(accountNumber: string, accountType?: string): Promise<TradingConfigResponse> {
   // 1. Resolve Account specific context (leverage + groupName)
-  const account = await prismaRead.liveUser.findUnique({
-    where: { accountNumber },
-    select: { leverage: true, groupName: true },
-  });
+  let account;
+  
+  if (accountType === 'demo') {
+    account = await prismaRead.demoUser.findUnique({
+      where: { accountNumber },
+      select: { leverage: true, groupName: true },
+    });
+  } else {
+    account = await prismaRead.liveUser.findUnique({
+      where: { accountNumber },
+      select: { leverage: true, groupName: true },
+    });
+  }
 
   if (!account) throw new AppError('ACCOUNT_NOT_FOUND', 404, 'Trading account not found.');
 

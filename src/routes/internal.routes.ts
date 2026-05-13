@@ -344,7 +344,8 @@ router.get('/admin/users', async (req: Request, res: Response) => {
  * Fetch account leverage and group-level symbols config.
  */
 router.get('/accounts/:accountNumber/trading-config', async (req: Request, res: Response) => {
-  const configStr = await getTradingConfig(req.params.accountNumber!);
+  const userType = req.query.userType as string | undefined;
+  const configStr = await getTradingConfig(req.params.accountNumber!, userType);
   res.json(configStr);
 });
 
